@@ -1,0 +1,249 @@
+/* Explicit layer order so component and utility rules stack predictably. */
+@layer theme, base, components, utilities;
+
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: var(--font-general-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-surface-warm: var(--surface-warm);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ring: var(--ring);
+  --color-photo-border: var(--photo-border);
+
+  --color-status-success: var(--status-success);
+  --color-status-success-surface: var(--status-success-surface);
+  --color-status-warning: var(--status-warning);
+  --color-status-warning-surface: var(--status-warning-surface);
+  --color-status-error: var(--status-error);
+  --color-status-error-surface: var(--status-error-surface);
+  --color-status-info: var(--status-info);
+  --color-status-info-surface: var(--status-info-surface);
+
+  --radius-control: 12px;
+  --radius-field: 14px;
+  --radius-photo: 14px;
+  --radius-surface: 18px;
+  --radius-panel: 22px;
+
+  --shadow-warm: var(--shadow-warm-value);
+  --shadow-warm-lg: var(--shadow-warm-lg-value);
+
+  --ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
+  /* A light overshoot for cards settling into a new depth in the deck. */
+  --ease-spring: cubic-bezier(0.34, 1.32, 0.64, 1);
+
+  --animate-backdrop-in: backdrop-in 180ms ease-out;
+  --animate-sheet-in: sheet-in 260ms var(--ease-out-expo);
+  --animate-cart-ack: cart-ack 1100ms var(--ease-out-expo) forwards;
+  --animate-cart-ack-badge: cart-ack-badge 1400ms var(--ease-out-expo) forwards;
+
+  --animate-agent-pulse: agent-pulse 900ms var(--ease-out-expo) both;
+
+  --animate-proposal-in: proposal-in 400ms var(--ease-out-expo) both;
+  --animate-preview-in: preview-in 480ms var(--ease-out-expo) both;
+  --animate-preview-out: preview-out 420ms ease-out forwards;
+  --animate-proposal-accept: proposal-accept 380ms var(--ease-out-expo) forwards;
+  --animate-proposal-reject: proposal-reject 280ms var(--ease-out-expo) forwards;
+
+  @keyframes backdrop-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes sheet-in {
+    from { transform: translateX(24px); opacity: 0; }
+    to { transform: none; opacity: 1; }
+  }
+
+  /* Brief, non-focus-stealing acknowledgement on the masthead cart chip. Both
+     run once on mount of a keyed element, so no timer or state is involved. */
+  @keyframes cart-ack {
+    0% { opacity: 0; transform: scale(0.92); }
+    25% { opacity: 1; transform: scale(1.05); }
+    100% { opacity: 0; transform: scale(1.2); }
+  }
+
+  @keyframes cart-ack-badge {
+    0% { opacity: 0; transform: translateY(5px); }
+    18% { opacity: 1; transform: translateY(0); }
+    72% { opacity: 1; transform: translateY(-2px); }
+    100% { opacity: 0; transform: translateY(-9px); }
+  }
+
+  /* Where the agent just touched the workbench. The live preview repaints and
+     the proposal deck animates on their own; the slot table and the framing
+     controls do not, so an agent's crop change would otherwise land with no
+     motion at all. A ring rather than a fill: it must be findable out of the
+     corner of the eye without obscuring the print it is drawing attention to.
+     Runs once on a keyed element, so no timer is involved. */
+  @keyframes agent-pulse {
+    0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--ring) 55%, transparent); }
+    35% { box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 32%, transparent); }
+    100% { box-shadow: 0 0 0 8px transparent; }
+  }
+
+  /* The main print dissolves from one template to the next: the old one
+     softens and recedes while the new one sharpens into place. */
+  @keyframes preview-in {
+    from { opacity: 0; filter: blur(10px); transform: scale(1.015); }
+    to { opacity: 1; filter: blur(0); transform: none; }
+  }
+
+  @keyframes preview-out {
+    from { opacity: 1; filter: blur(0); transform: none; }
+    to { opacity: 0; filter: blur(10px); transform: scale(0.985); }
+  }
+
+  /* A proposal card is dealt up from the corner it is anchored to, overshoots
+     a touch and settles, so the stack reads as something placed on top rather
+     than appearing there. */
+  @keyframes proposal-in {
+    0% { opacity: 0; transform: translate(-18px, 30px) rotate(-4deg) scale(0.9); }
+    65% { opacity: 1; transform: translate(2px, -4px) rotate(0.6deg) scale(1.012); }
+    100% { opacity: 1; transform: none; }
+  }
+
+  /* Accepting affirms in place for a beat, then carries the card toward the
+     masthead cart chip — up and to the right — where the +1 flash lands. */
+  @keyframes proposal-accept {
+    0% { opacity: 1; transform: none; }
+    24% { opacity: 1; transform: translateY(-4px) rotate(1deg) scale(1.04); }
+    100% { opacity: 0; transform: translate(120px, -110px) rotate(8deg) scale(0.6); }
+  }
+
+  /* Skipping tosses the card back down into the corner it was dealt from. */
+  @keyframes proposal-reject {
+    0% { opacity: 1; transform: none; }
+    100% { opacity: 0; transform: translate(-48px, 56px) rotate(-9deg) scale(0.92); }
+  }
+}
+
+/* A template card joining the ring fades up from the back rather than popping
+   into place. */
+.template-carousel-card {
+  @starting-style {
+    opacity: 0;
+  }
+}
+
+.preview-crossfade-enter { animation: var(--animate-preview-in); }
+.preview-crossfade-exit { animation: var(--animate-preview-out); }
+
+/* The deck's per-card parallax coefficients. Registered so a card promoted to a
+   new depth transitions its cursor response instead of jumping. */
+@property --deck-kx { syntax: "<number>"; inherits: true; initial-value: 0; }
+@property --deck-ky { syntax: "<number>"; inherits: true; initial-value: 0; }
+@property --deck-kr { syntax: "<number>"; inherits: true; initial-value: 0; }
+
+:root {
+  --background: #fbf2eb;
+  --foreground: #17110c;
+  --card: #ffffff;
+  --card-foreground: #17110c;
+  --surface-warm: #ffede1;
+  --primary: #ff7c21;
+  --primary-hover: #e9650e;
+  --primary-foreground: #17110c;
+  --muted-foreground: #4b4240;
+  --border: rgb(23 17 12 / 0.12);
+  --border-strong: rgb(23 17 12 / 0.24);
+  --ring: #ff7c21;
+  --photo-border: #ffffff;
+
+  --status-success: #236f77;
+  --status-success-surface: #e3f2e3;
+  --status-warning: #8b4a16;
+  --status-warning-surface: #ffe4cf;
+  --status-error: #a4382a;
+  --status-error-surface: #fbe5e1;
+  --status-info: #4b4240;
+  --status-info-surface: #ffede1;
+
+  --select-chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234b4240' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+
+  --shadow-warm-value: 0 8px 24px rgb(23 17 12 / .08), 0 2px 6px rgb(23 17 12 / .06);
+  --shadow-warm-lg-value: 0 20px 48px rgb(23 17 12 / .12), 0 6px 16px rgb(23 17 12 / .08);
+}
+
+.dark {
+  --background: #17110c;
+  --foreground: #fef7f0;
+  --card: #322821;
+  --card-foreground: #fef7f0;
+  --surface-warm: #4c2818;
+  --primary: #ff7c21;
+  --primary-hover: #ff9147;
+  --primary-foreground: #17110c;
+  --muted-foreground: #c6b6aa;
+  --border: rgb(254 247 240 / 0.14);
+  --border-strong: rgb(254 247 240 / 0.28);
+  --ring: #ff7c21;
+  --photo-border: #fef7f0;
+
+  --status-success: #75c9c0;
+  --status-success-surface: color-mix(in srgb, #75c9c0 16%, var(--card));
+  --status-warning: #ffb77c;
+  --status-warning-surface: color-mix(in srgb, #ffb77c 16%, var(--card));
+  --status-error: #ff958b;
+  --status-error-surface: color-mix(in srgb, #ff958b 16%, var(--card));
+  --status-info: #c6b6aa;
+  --status-info-surface: color-mix(in srgb, #c6b6aa 12%, var(--card));
+
+  --select-chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23c6b6aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+
+  --shadow-warm-value: 0 8px 24px rgb(0 0 0 / .28), 0 2px 6px rgb(0 0 0 / .2);
+  --shadow-warm-lg-value: 0 20px 48px rgb(0 0 0 / .4), 0 6px 16px rgb(0 0 0 / .28);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  input[type="range"],
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--primary);
+  }
+
+  ::selection {
+    background-color: color-mix(in srgb, var(--primary) 28%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
