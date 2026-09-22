@@ -1,18 +1,34 @@
-# Batch Relay WebMCP Storefront
+# Batch Relay Creative
 
-[Batch Relay](https://batchrelay.com) · WebMCP hackathon demo
+[Batch Relay](https://batchrelay.com) · Atumera Livepeer Agent Hackathon project
 
-Batch Relay's platform with WebMCP exposes a agentic experience where users can
-interact naturally with their voice, or drive the experience with various
-agents via tool-calls. Shoppers can load their own JPEG or PNG photographs
-locally, select a print, frame it, and use studio templates, when appropriate,
-and review the prints before they complete their purchase.
+Open `/creative` to make a sports event card and banner from an athlete photo,
+logo, event text, and a Livepeer-generated background. The browser agent can
+inspect the project, propose a background, change event details, switch formats,
+and export artwork through WebMCP. A person reviews a cost estimate before a
+Livepeer job runs and chooses a finished candidate before it changes the proof.
 
-People and agents use the same visible workbench. Instead of asking an agent to
-guess at buttons and pixels, the page exposes WebMCP tools for the
-photograph tray, print drafts, framing, templates, proposal cards, and cart.
+The existing print storefront remains at `/` as the Batch Relay base for this
+standalone project. Its code and WebMCP tools are included, but the Creative
+workbench is the Livepeer hackathon entry.
 
-## What the demo proves
+## What Creative proves
+
+- **Media generation with a review step.** Livepeer can remove an athlete's
+  background and generate a new scene. The person approves each quoted job.
+- **Editable composition.** Athlete, logo, background, and event text stay as
+  independent layers. Local text and layout changes do not start another job.
+- **Agent and person share one project.** Nine WebMCP tools connect the browser
+  agent to the visible editor, while the person can finish the artwork directly.
+- **Two real outputs.** The same approved scene exports as a 1080 × 1350 PNG
+  card and a 1920 × 1080 PNG banner.
+
+## Storefront base
+
+The storefront at `/` lets shoppers load JPEG or PNG photographs locally,
+select a print, frame it, use a published studio template when available, and
+review a print draft. People and agents use the same visible workbench through
+the following capabilities:
 
 - **Natural photo references.** A shopper can say “image 3” after loading a
   folder; the agent receives the matching visible tray ordinal.
@@ -33,9 +49,11 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), select JPEG or PNG files,
-then choose a print. No account, payment method, or local image upload is
-required for the direct-print path.
+Open [http://localhost:3000/creative](http://localhost:3000/creative) for the
+Livepeer workbench. The inherited print storefront is at
+[http://localhost:3000](http://localhost:3000). Local composition and PNG export
+work without Livepeer credentials. Live generation requires the server-only
+setup in [`docs/creative/README.md`](docs/creative/README.md).
 
 To reset the browser-local demo state while developing, open
 `?reset=workbench` once, for example:
@@ -69,8 +87,8 @@ The format chooser also exposes the declarative `search-print-formats` tool.
 It remains an ordinary search form for a person; an agent invocation returns
 the matching visible products through the browser's form-tool API.
 
-For the smoothest judge/demo path, open the deployed app in ChatGPT's in-app
-browser. Google Chrome can also be used with WebMCP enabled.
+For a browser agent demo, use a WebMCP-capable browser. Ordinary editor
+controls remain available without an agent.
 
 ## Optional studio-template configuration
 
@@ -107,11 +125,12 @@ the person must approve the visible quote before the server can execute it.
 The browser agent never waits for the provider job, and it cannot silently
 confirm spend.
 
-The creative implementation is new work on baseline `84ce005` of this public
+The creative implementation builds on baseline `84ce005` of the existing
 storefront. Provider credentials, participant access details, and submission
 receipts remain private. See [`docs/creative/developer-guide.md`](docs/creative/developer-guide.md)
-for the editor bridge contract and [`docs/creative/demo-script.md`](docs/creative/demo-script.md)
-for the review flow.
+for the editor bridge contract, [`docs/creative/demo-script.md`](docs/creative/demo-script.md)
+for the review flow, and [`docs/creative/final-demo-plan.md`](docs/creative/final-demo-plan.md)
+for the short video plan.
 
 ## Verification
 

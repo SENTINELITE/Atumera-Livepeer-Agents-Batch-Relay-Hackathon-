@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import Link from "next/link";
 import styles from "./creative-editor.module.css";
+import { BatchRelayLockup } from "@/components/brand/batch-relay-lockup";
 import {
   publishCreativeWebMcpState,
   respondToCreativeWebMcpAction,
@@ -230,6 +232,8 @@ export default function CreativeEditor() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [pendingOperation, setPendingOperation] = useState<"background" | "cutout" | null>(null);
   const [providerConfigured, setProviderConfigured] = useState(true);
+  const [providerSetupComplete, setProviderSetupComplete] = useState(false);
+  const [providerStatusUnavailable, setProviderStatusUnavailable] = useState(false);
   const [showPasscode, setShowPasscode] = useState(false);
   const [passcode, setPasscode] = useState("");
   const [sessionPending, setSessionPending] = useState(false);
@@ -288,11 +292,32 @@ export default function CreativeEditor() {
       hydrated.current = true;
     }).catch(() => { hydrated.current = true; });
     void fetch("/api/creative/status").then(async (response) => {
-      if (!response.ok) return;
+      if (!response.ok) {
+        setProviderStatusUnavailable(true);
+        setStatus("unconfigured");
+        setStatusMessage("Unable to verify live generation setup");
+        return;
+      }
       const data = await response.json() as { configured?: boolean; authorized?: boolean };
-      setProviderConfigured(Boolean(data.configured && data.authorized));
-      if (!data.configured) { setStatus("unconfigured"); setStatusMessage("Provider setup required for live renders"); }
-    }).catch(() => setProviderConfigured(false));
+      const configured = Boolean(data.configured);
+      const authorized = Boolean(data.authorized);
+      setProviderStatusUnavailable(false);
+      setProviderSetupComplete(configured);
+      setProviderConfigured(configured && authorized);
+      if (!configured) {
+        setStatus("unconfigured");
+        setStatusMessage("Provider setup required for live renders");
+      } else if (!authorized) {
+        setStatus("unconfigured");
+        setStatusMessage("Livepeer is configured; enter the creative passcode to unlock rendering");
+        setShowPasscode(true);
+      }
+    }).catch(() => {
+      setProviderConfigured(false);
+      setProviderStatusUnavailable(true);
+      setStatus("unconfigured");
+      setStatusMessage("Unable to verify live generation setup");
+    });
     return () => { cancelled = true; };
   }, []);
 
@@ -337,7 +362,7 @@ export default function CreativeEditor() {
       setStatus("failed"); setStatusMessage("Estimate is out of date"); setGenerationError("The project changed; inspect it again before requesting a render."); return null;
     }
     if (!providerConfigured) {
-      setStatus("unconfigured"); setStatusMessage("Live provider is not configured"); setShowPasscode(true); return null;
+      setStatus("unconfigured"); setStatusMessage("Live generation access is locked; enter the creative passcode"); setShowPasscode(true); return null;
     }
     try {
       const estimateRequestId = crypto.randomUUID();
@@ -412,7 +437,7 @@ export default function CreativeEditor() {
       try {
         const response = await fetch(`/api/creative/jobs/${encodeURIComponent(jobId)}`);
         if (response.status === 401) {
-          setProviderConfigured(false); setStatus("unconfigured"); setStatusMessage("Live generation session expired; unlock to resume"); setShowPasscode(true); return;
+          setProviderConfigured(false); setProviderSetupComplete(true); setStatus("unconfigured"); setStatusMessage("Live generation session expired; unlock to resume"); setShowPasscode(true); return;
         }
         if (!response.ok) return;
         const data = await response.json() as { status?: string; imageUrl?: string; error?: string; warnings?: string[] };
@@ -425,7 +450,7 @@ export default function CreativeEditor() {
             }
             try {
               const imageResponse = await fetch(data.imageUrl);
-              if (imageResponse.status === 401) { setProviderConfigured(false); setStatus("unconfigured"); setStatusMessage("Live generation session expired; unlock to resume"); setShowPasscode(true); return; }
+              if (imageResponse.status === 401) { setProviderConfigured(false); setProviderSetupComplete(true); setStatus("unconfigured"); setStatusMessage("Live generation session expired; unlock to resume"); setShowPasscode(true); return; }
               if (!imageResponse.ok) throw new Error("Image proxy did not return the cutout.");
               const blob = await imageResponse.blob();
               if (!(await hasValidCutoutAlpha(blob))) throw new Error("The returned cutout did not contain both transparent and visible pixels.");
@@ -460,7 +485,7 @@ export default function CreativeEditor() {
           try {
             const imageResponse = await fetch(data.imageUrl);
             if (imageResponse.status === 401) {
-              setProviderConfigured(false); setStatus("unconfigured"); setStatusMessage("Live generation session expired; unlock to resume"); setShowPasscode(true); return;
+              setProviderConfigured(false); setProviderSetupComplete(true); setStatus("unconfigured"); setStatusMessage("Live generation session expired; unlock to resume"); setShowPasscode(true); return;
             }
             if (!imageResponse.ok) throw new Error("Image proxy did not return the rendered image.");
             const blob = await imageResponse.blob();
@@ -575,7 +600,7 @@ export default function CreativeEditor() {
     const source = project.athleteOriginal ?? project.assets.athlete;
     const sourceUrl = source ? assetUrls[source.blobKey] ?? assetUrls[source.id] ?? source.url : undefined;
     if (!source || typeof sourceUrl !== "string") { setGenerationError("Add a photograph before requesting a cutout."); return; }
-    if (!providerConfigured) { setStatus("unconfigured"); setStatusMessage("Live provider is not configured"); setShowPasscode(true); return; }
+    if (!providerConfigured) { setStatus("unconfigured"); setStatusMessage("Live generation access is locked; enter the creative passcode"); setShowPasscode(true); return; }
     setGenerationError(null); setStatus("estimating"); setStatusMessage("Preparing a private cutout estimate…");
     try {
       const copy = await prepareCutoutCopy(sourceUrl);
@@ -804,9 +829,13 @@ export default function CreativeEditor() {
   return (
     <main className={styles.workbench}>
       <header className={styles.topbar}>
-        <div className={styles.brand}><span className={styles.brandMark}>BR</span><span className={styles.brandCopy}><strong>Batch Relay</strong><span>Creative desk / 01</span></span></div>
+        <Link aria-label="Batch Relay home" className={styles.brand} href="/">
+          <BatchRelayLockup className={styles.brandLockup} />
+          <span className={styles.brandDivider} aria-hidden="true" />
+          <span className={styles.brandCopy}><strong>Creative desk</strong><span>SPORTS EVENT STUDIO</span></span>
+        </Link>
         <div className={styles.projectTitle}><span>Working project</span><strong>{project.event.name || "Untitled event"}</strong></div>
-        <div className={styles.topActions}><span className={styles.status}><i className={styles.statusDot} />{status === "unconfigured" ? "Setup needed" : "Local recovery on"}</span><button className={styles.quietButton} type="button" onClick={() => void exportArtwork().catch(() => undefined)}>Download PNG</button></div>
+        <div className={styles.topActions}><span className={`${styles.status} ${status === "unconfigured" ? styles.statusLocked : ""}`}><i className={styles.statusDot} />{status === "unconfigured" ? (providerStatusUnavailable ? "Live status unavailable" : providerSetupComplete ? "Unlock to render" : "Setup needed") : "Local recovery on"}</span><Link className={styles.siteLink} href="/">Storefront home <span aria-hidden="true">↗</span></Link><button className={styles.orangeButton} type="button" onClick={() => void exportArtwork().catch(() => undefined)}>Download PNG</button></div>
       </header>
       <div className={styles.layout}>
         <aside className={styles.rail} aria-label="Event details and source assets">
@@ -843,7 +872,7 @@ export default function CreativeEditor() {
         </section>
 
         <aside className={`${styles.rail} ${styles.rightRail}`} aria-label="Background direction and exports">
-          <section className={styles.railSection}><div className={styles.sectionHeading}><p className={styles.eyebrow}>06 / Background direction</p><span className={styles.tinyLabel}>LIVEPEER</span></div><div className={styles.directionCard}><p className={styles.directionText}><strong>Describe the atmosphere.</strong> During background generation, your photograph, logo, and type stay local. A background proposal is quoted separately before any render.</p><div className={styles.field}><label htmlFor="creative-brief">Brief / revision note</label><textarea id="creative-brief" value={project.brief} onChange={(event) => updateBrief(event.target.value)} /></div><div className={styles.directionButtons}><button className={styles.directionButton} type="button" onClick={() => updateBrief(`${project.brief} More negative space behind the headline.`)}>+ Clear headline space</button><button className={styles.directionButton} type="button" onClick={() => updateBrief(`${project.brief} Add warmer sideline light.`)}>+ Warm the sideline light</button><button className={styles.orangeButton} type="button" disabled={status === "estimating" || status === "running" || status === "queued"} onClick={() => void createEstimate()}>{status === "estimating" ? "Preparing estimate…" : "Get a render estimate"}</button></div>{generationError && <div className={`${styles.notice} ${styles.noticeError}`} role="alert">{generationError}</div>}{status === "running" || status === "queued" ? <div className={styles.progress} aria-live="polite"><div className={styles.progressTrack}><div className={styles.progressFill} /></div><div className={styles.progressLabel}><span>{pendingOperation === "cutout" ? "Removing athlete background" : "Generating background"}</span><span>In progress</span></div></div> : null}</div>{quote && <div className={styles.quote}><div className={styles.quoteHeader}><span>Estimated cost</span><span>{quote.operation === "cutout" ? "Athlete cutout" : "Background"}</span></div><div className={styles.quoteCost}>{formatCost(quote.cost)}</div><div className={styles.quoteMeta}>{quote.model || "fast background model"} · one render · no automatic retries</div><button className={styles.orangeButton} type="button" disabled={status === "queued" || status === "running"} onClick={() => void approveQuote()}>{quote.operation === "cutout" ? "Approve cutout" : "Approve & render"}</button></div>}{status === "unconfigured" && <div className={styles.notice}>Live rendering is unavailable until setup is complete. Local editing and PNG export remain available.{showPasscode ? <form onSubmit={(event) => { event.preventDefault(); setSessionPending(true); void fetch("/api/creative/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ passcode }) }).then(async (response) => { if (!response.ok) { const body = await response.json().catch(() => ({})) as { error?: string }; throw new Error(body.error || "Passcode was rejected"); } setProviderConfigured(true); setStatus(jobId ? "running" : "idle"); setStatusMessage(jobId ? "Live generation resumed" : "Live generation ready"); setGenerationError(null); setShowPasscode(false); }).catch((error) => { setGenerationError(error instanceof Error ? error.message : "Passcode was rejected"); setStatus("unconfigured"); }).finally(() => setSessionPending(false)); }}><div className={styles.field}><label htmlFor="provider-passcode">Passcode</label><input id="provider-passcode" type="password" value={passcode} onChange={(event) => setPasscode(event.target.value)} /><button className={styles.orangeButton} style={{ marginTop: 8, width: "100%" }} disabled={sessionPending} type="submit">{sessionPending ? "Unlocking…" : "Unlock live generation"}</button></div></form> : <button className={styles.directionButton} style={{ marginTop: 10, width: "100%" }} type="button" onClick={() => setShowPasscode(true)}>Unlock live generation</button>}</div>}</section>
+          <section className={styles.railSection}><div className={styles.sectionHeading}><p className={styles.eyebrow}>06 / Background direction</p><span className={styles.tinyLabel}>LIVEPEER</span></div><div className={styles.directionCard}><p className={styles.directionText}><strong>Describe the atmosphere.</strong> During background generation, your photograph, logo, and type stay local. A background proposal is quoted separately before any render.</p><div className={styles.field}><label htmlFor="creative-brief">Brief / revision note</label><textarea id="creative-brief" value={project.brief} onChange={(event) => updateBrief(event.target.value)} /></div><div className={styles.directionButtons}><button className={styles.directionButton} type="button" onClick={() => updateBrief(`${project.brief} More negative space behind the headline.`)}>+ Clear headline space</button><button className={styles.directionButton} type="button" onClick={() => updateBrief(`${project.brief} Add warmer sideline light.`)}>+ Warm the sideline light</button><button className={styles.orangeButton} type="button" disabled={status === "estimating" || status === "running" || status === "queued"} onClick={() => void createEstimate()}>{status === "estimating" ? "Preparing estimate…" : "Get a render estimate"}</button></div>{generationError && <div className={`${styles.notice} ${styles.noticeError}`} role="alert">{generationError}</div>}{status === "running" || status === "queued" ? <div className={styles.progress} aria-live="polite"><div className={styles.progressTrack}><div className={styles.progressFill} /></div><div className={styles.progressLabel}><span>{pendingOperation === "cutout" ? "Removing athlete background" : "Generating background"}</span><span>In progress</span></div></div> : null}</div>{quote && <div className={styles.quote}><div className={styles.quoteHeader}><span>Estimated cost</span><span>{quote.operation === "cutout" ? "Athlete cutout" : "Background"}</span></div><div className={styles.quoteCost}>{formatCost(quote.cost)}</div><div className={styles.quoteMeta}>{quote.model || "fast background model"} · one render · no automatic retries</div><button className={styles.orangeButton} type="button" disabled={status === "queued" || status === "running"} onClick={() => void approveQuote()}>{quote.operation === "cutout" ? "Approve cutout" : "Approve & render"}</button></div>}{status === "unconfigured" && <div className={`${styles.notice} ${styles.accessNotice}`}>{providerStatusUnavailable ? "Could not check Livepeer setup. Reload to check again." : providerSetupComplete ? "Enter the creative passcode to unlock live rendering." : "Live rendering is unavailable until setup is complete."} Local editing and PNG export remain available.{showPasscode ? <form onSubmit={(event) => { event.preventDefault(); setSessionPending(true); void fetch("/api/creative/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ passcode }) }).then(async (response) => { if (!response.ok) { const body = await response.json().catch(() => ({})) as { error?: string }; throw new Error(body.error || "Passcode was rejected"); } setProviderConfigured(true); setProviderSetupComplete(true); setStatus(jobId ? "running" : "idle"); setStatusMessage(jobId ? "Live generation resumed" : "Live generation ready"); setGenerationError(null); setShowPasscode(false); }).catch((error) => { setGenerationError(error instanceof Error ? error.message : "Passcode was rejected"); setStatus("unconfigured"); }).finally(() => setSessionPending(false)); }}><div className={styles.field}><label htmlFor="provider-passcode">Passcode</label><input id="provider-passcode" type="password" value={passcode} onChange={(event) => setPasscode(event.target.value)} /><button className={styles.orangeButton} style={{ marginTop: 8, width: "100%" }} disabled={sessionPending} type="submit">{sessionPending ? "Unlocking…" : "Unlock live generation"}</button></div></form> : providerSetupComplete ? <button className={styles.directionButton} style={{ marginTop: 10, width: "100%" }} type="button" onClick={() => setShowPasscode(true)}>Unlock live generation</button> : null}</div>}</section>
           <section className={styles.railSection}><div className={styles.sectionHeading}><p className={styles.eyebrow}>07 / Candidate review</p><span className={styles.tinyLabel}>{project.backgroundCandidates.length} OPTIONS</span></div>{project.backgroundCandidates.map((candidate, index) => { const applied = candidate.asset.id === project.assets.background?.id; const pending = candidate.status === "pending"; const candidateUrl = assetUrls[candidate.asset.blobKey] ?? assetUrls[candidate.asset.id] ?? candidate.asset.url; return <article className={`${styles.candidate} ${applied ? styles.selected : ""}`} key={candidate.id}><div className={`${styles.candidateVisual} ${index % 3 === 1 ? styles.alt : index % 3 === 2 ? styles.revision : ""}`}>{candidateUrl && <img className={styles.candidateImage} src={candidateUrl} alt="" />}<span>{pending ? "Rendering…" : candidate.asset.source === "sample" ? "Previously generated sample" : candidate.status === "ready" ? "Ready to review" : candidate.warning || "Unavailable"}</span></div><div className={styles.candidateInfo}><strong>{candidate.asset.name}</strong><span>{pending ? "PENDING" : candidate.asset.source === "sample" ? "LOCAL" : candidate.status === "ready" ? "NEW" : "FAILED"}</span></div>{candidate.status === "ready" && <button className={styles.candidateAction} type="button" onClick={() => applyCandidate(candidate.id)}>{applied ? "Applied to proof" : "Apply to proof"}</button>}</article>; })}</section>
           <section className={styles.railSection}><p className={styles.eyebrow}>08 / Export set</p><div className={styles.exportList}><button className={styles.exportButton} type="button" onClick={() => void exportArtwork("card").catch(() => undefined)}>Portrait social card <span>PNG · 1080 × 1350 ↗</span></button><button className={styles.exportButton} type="button" onClick={() => void exportArtwork("banner").catch(() => undefined)}>Digital banner <span>PNG · 1920 × 1080 ↗</span></button></div>{exportError && <div className={`${styles.notice} ${styles.noticeError}`} role="alert">{exportError}</div>}{lastExport && <div className={styles.exportResult}><img className={styles.exportPreview} src={lastExport.url} alt="Latest exported creative" /><div className={styles.exportDetails}><strong>{lastExport.filename}</strong><span>{lastExport.width} × {lastExport.height} · {(lastExport.size / 1024).toFixed(0)} KB</span><a className={styles.exportLink} href={lastExport.url} download={lastExport.filename}>Download this PNG</a></div></div>}</section>
         </aside>
