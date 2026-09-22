@@ -376,7 +376,7 @@ function warningsFrom(value: unknown): string[] {
   return [...new Set(warnings)];
 }
 
-function providerPlanState(value: unknown): { status: CreativeJobStatus; jobId?: string; imageUrl?: string; actualCostUsd?: number; warnings: string[] } {
+function providerPlanState(value: unknown): { status: CreativeJobStatus; jobId?: string; imageUrl?: string; actualCostUsd?: number; warnings: string[]; error?: string } {
   const step = value && typeof value === "object" && Array.isArray((value as Record<string, unknown>).steps)
     ? ((value as Record<string, unknown>).steps as unknown[])[0]
     : value;
@@ -384,11 +384,24 @@ function providerPlanState(value: unknown): { status: CreativeJobStatus; jobId?:
   const status = statusFrom(source);
   const warnings = warningsFrom(source);
   const imageUrl = mediaURLFrom(source);
-  const actualCostUsd = numberValue(
+  const reportedActualCostUsd = numberValue(
+    nestedValue(value, ["total_actual_cost_usd", "totalActualCostUsd"]),
     nestedValue(source, ["actual_cost_usd", "actualCostUsd", "cost_usd", "costUsd"]),
     nestedValue(value, ["actual_cost_usd", "actualCostUsd"]),
   );
-  return { status: warnings.some((warning) => warning.includes("fallback")) ? "failed" : status, jobId: jobIDFrom(source) ?? jobIDFrom(value), imageUrl, actualCostUsd, warnings };
+  const failed = status === "failed" || warnings.some((warning) => warning.includes("fallback"));
+  // A running plan may report zero so far. Keep its reservation until the
+  // provider reports a terminal outcome and a final cost.
+  const actualCostUsd = failed || status === "succeeded" ? reportedActualCostUsd : undefined;
+  const providerError = stringValue(nestedValue(source, ["error"]), nestedValue(value, ["error"]));
+  const error = failed
+    ? /demo budget store unavailable/i.test(providerError ?? "")
+      ? "Livepeer's demo budget store is unavailable. No artwork was produced; try again after the provider recovers."
+      : warnings.some((warning) => warning.includes("fallback"))
+        ? "Livepeer returned a fallback output instead of generated artwork."
+        : "Livepeer could not create the artwork."
+    : undefined;
+  return { status: failed ? "failed" : status, jobId: jobIDFrom(source) ?? jobIDFrom(value), imageUrl, actualCostUsd, warnings, error };
 }
 
 export async function executeEstimate(input: { estimateId: string; requestId: string; projectId: string; revision: number }): Promise<CreativeJob> {
@@ -454,9 +467,11 @@ export async function executeEstimate(input: { estimateId: string; requestId: st
       job.imageUrl = provider.imageUrl;
       job.actualCostUsd = provider.actualCostUsd;
       job.warnings = provider.warnings;
+      job.error = provider.error;
       job.updatedAt = new Date().toISOString();
       if (job.actualCostUsd !== undefined) job.reservationState = "settled";
       if (job.status === "succeeded") journal.estimates[job.estimateId].state = "completed";
+      if (job.status === "failed" && job.actualCostUsd !== undefined) journal.estimates[job.estimateId].state = "failed";
       return job;
     });
     return responseJob(updated);
@@ -481,7 +496,7 @@ export async function getCreativeJob(id: string): Promise<CreativeJob> {
     const result = await callLivepeerTool("get_plan", { plan_id: job.providerPlanId });
     let value = providerValue(result);
     let provider = providerPlanState(value);
-    if (!provider.imageUrl && provider.jobId) {
+    if (!provider.imageUrl && provider.jobId && provider.status !== "failed") {
       const mediaResult = await callLivepeerTool("get_create_media", { job_id: provider.jobId });
       value = mediaResult.structuredContent ?? providerValue(mediaResult);
       const media = providerPlanState(value);
@@ -491,6 +506,7 @@ export async function getCreativeJob(id: string): Promise<CreativeJob> {
         imageUrl: media.imageUrl,
         actualCostUsd: media.actualCostUsd ?? provider.actualCostUsd,
         warnings: [...new Set([...provider.warnings, ...media.warnings])],
+        error: media.error ?? provider.error,
       };
     }
     const updated = await withJournal((next) => {
@@ -502,6 +518,7 @@ export async function getCreativeJob(id: string): Promise<CreativeJob> {
       current.imageUrl = provider.imageUrl ?? current.imageUrl;
       current.actualCostUsd = provider.actualCostUsd ?? current.actualCostUsd;
       current.warnings = provider.warnings;
+      current.error = provider.error;
       current.updatedAt = new Date().toISOString();
       if (current.actualCostUsd !== undefined) current.reservationState = "settled";
       if (current.status === "succeeded") next.estimates[current.estimateId].state = "completed";

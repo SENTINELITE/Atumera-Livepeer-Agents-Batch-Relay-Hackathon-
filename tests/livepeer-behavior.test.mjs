@@ -238,6 +238,89 @@ test("counts concurrent pending reservations against the budget cap", async () =
   assert.equal(providerCalls.filter((call) => call.name === "submit_plan" && call.args.confirm === true).length, 1);
 });
 
+test("shows a provider demo-budget failure and releases a verified zero-cost reservation", async () => {
+  providerResponder = async (name, args) => {
+    if (name === "submit_plan" && args.confirm === true) {
+      return { structuredContent: {
+        status: "failed",
+        steps: [{ tool: "create_media", status: "failed", error: "Demo budget store unavailable — try again shortly." }],
+        total_actual_cost_usd: 0,
+      } };
+    }
+    return { structuredContent: { status: "proposed", plan_id: "plan-budget-outage", total_est_cost_usd: 0.0032, steps: [{ args: { model_override: "flux-schnell" }, est_cost_usd: 0.0032 }] } };
+  };
+
+  const estimate = await makeEstimate("budget-outage");
+  const request = { estimateId: estimate.id, requestId: "budget-outage", projectId: estimate.projectId, revision: estimate.revision };
+  const failed = await service.executeEstimate(request);
+  const duplicate = await service.executeEstimate(request);
+  const saved = await snapshot();
+
+  assert.equal(failed.status, "failed");
+  assert.match(failed.error, /demo budget store is unavailable/i);
+  assert.equal(failed.actualCostUsd, 0);
+  assert.equal(saved.jobs[failed.id].reservationState, "settled");
+  assert.equal(saved.estimates[estimate.id].state, "failed");
+  assert.equal(journal.budgetSnapshot(saved).reservedUsd, 0);
+  assert.equal(duplicate.id, failed.id);
+  assert.equal(providerCalls.filter((call) => call.name === "submit_plan" && call.args.confirm === true).length, 1);
+});
+
+test("keeps a reservation when a queued plan reports zero spent so far", async () => {
+  providerResponder = async (name, args) => {
+    if (name === "submit_plan" && args.confirm === true) {
+      return { structuredContent: { status: "queued", total_actual_cost_usd: 0, steps: [{ status: "queued", job_id: "media-pending" }] } };
+    }
+    return { structuredContent: { status: "proposed", plan_id: "plan-pending", total_est_cost_usd: 0.0032, steps: [{ args: { model_override: "flux-schnell" }, est_cost_usd: 0.0032 }] } };
+  };
+
+  const estimate = await makeEstimate("pending-zero");
+  const queued = await service.executeEstimate({ estimateId: estimate.id, requestId: "pending-zero", projectId: estimate.projectId, revision: estimate.revision });
+  const saved = await snapshot();
+  assert.equal(queued.status, "queued");
+  assert.equal(queued.actualCostUsd, undefined);
+  assert.equal(saved.jobs[queued.id].reservationState, "held");
+  assert.equal(journal.budgetSnapshot(saved).reservedUsd, 0.1);
+});
+
+test("a queued job can finish as a zero-cost provider failure", async () => {
+  const estimate = await makeEstimate("late-budget-outage");
+  const request = { estimateId: estimate.id, requestId: "late-budget-outage", projectId: estimate.projectId, revision: estimate.revision };
+  const queued = await service.executeEstimate(request);
+  providerResponder = async (name) => {
+    assert.equal(name, "get_plan");
+    return { structuredContent: {
+      status: "failed",
+      steps: [{ tool: "create_media", status: "failed", error: "Demo budget store unavailable — try again shortly." }],
+      total_actual_cost_usd: 0,
+    } };
+  };
+
+  const failed = await service.getCreativeJob(queued.id);
+  const saved = await snapshot();
+  assert.equal(failed.status, "failed");
+  assert.match(failed.error, /demo budget store is unavailable/i);
+  assert.equal(failed.actualCostUsd, 0);
+  assert.equal(saved.jobs[failed.id].reservationState, "settled");
+  assert.equal(journal.budgetSnapshot(saved).reservedUsd, 0);
+});
+
+test("a polled media failure keeps the provider explanation", async () => {
+  const estimate = await makeEstimate("media-budget-outage");
+  const queued = await service.executeEstimate({ estimateId: estimate.id, requestId: "media-budget-outage", projectId: estimate.projectId, revision: estimate.revision });
+  providerResponder = async (name) => name === "get_plan"
+    ? { structuredContent: { status: "running", steps: [{ status: "running", job_id: "media-default" }] } }
+    : { structuredContent: { status: "failed", error: "Demo budget store unavailable — try again shortly.", total_actual_cost_usd: 0 } };
+
+  const failed = await service.getCreativeJob(queued.id);
+  const saved = await snapshot();
+  assert.equal(failed.status, "failed");
+  assert.match(failed.error, /demo budget store is unavailable/i);
+  assert.equal(failed.actualCostUsd, 0);
+  assert.equal(saved.jobs[failed.id].reservationState, "settled");
+  assert.equal(journal.budgetSnapshot(saved).reservedUsd, 0);
+});
+
 test("uses distinct provider idempotency keys for alternatives and stable keys for retries", async () => {
   const first = await makeEstimate("alternative-one");
   const second = await makeEstimate("alternative-two");
