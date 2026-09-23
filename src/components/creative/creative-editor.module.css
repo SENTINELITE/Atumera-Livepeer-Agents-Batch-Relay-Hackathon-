@@ -52,13 +52,22 @@
 .status { display: inline-flex; gap: 7px; align-items: center; color: var(--mint); font: 10px/1 var(--font-geist-mono), monospace; letter-spacing: .04em; margin-right: 8px; }
 .statusLocked { color: var(--status-warning); }
 .statusDot { width: 6px; height: 6px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 0 4px color-mix(in srgb, var(--mint) 12%, transparent); }
-.siteLink { display: inline-flex; align-items: center; gap: 5px; min-height: 40px; padding: 0 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; font-size: 12px; font-weight: 550; text-decoration: none; transition: 160ms ease; }
+.siteLink { display: inline-flex; align-items: center; gap: 9px; min-height: 40px; padding: 0 12px 0 14px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; font-size: 12px; font-weight: 550; text-decoration: none; transition: 160ms ease; }
 .siteLink:hover, .siteLink:focus-visible { color: var(--ink); border-color: var(--line-strong); background: var(--panel-raised); }
+.siteLinkIcon { display: grid; width: 20px; height: 20px; place-items: center; color: var(--orange-soft); border: 1px solid var(--line); border-radius: 50%; font: 12px/1 var(--font-geist-mono), monospace; transition: transform 160ms ease, border-color 160ms ease; }
+.siteLink:hover .siteLinkIcon, .siteLink:focus-visible .siteLinkIcon { transform: translate(1px, -1px); border-color: var(--orange); }
 .quietButton, .orangeButton { border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--ink); min-height: 40px; padding: 0 17px; font-size: 12px; font-weight: 600; transition: 160ms ease; }
 .quietButton:hover, .quietButton:focus-visible { border-color: var(--line-strong); background: var(--panel-raised); }
 .orangeButton { border-color: var(--orange); color: var(--primary-foreground); background: var(--orange); font-weight: 700; box-shadow: 0 3px 8px color-mix(in srgb, var(--orange) 22%, transparent); }
 .orangeButton:hover, .orangeButton:focus-visible { background: #e9650e; border-color: #e9650e; }
 .orangeButton:disabled, .quietButton:disabled { opacity: .42; cursor: not-allowed; }
+.exportMenu { position: relative; }
+.exportTrigger { display: inline-flex; align-items: center; gap: 12px; list-style: none; cursor: pointer; }
+.exportTrigger::-webkit-details-marker { display: none; }
+.exportTrigger > span { display: grid; width: 19px; height: 19px; place-items: center; border-left: 1px solid color-mix(in srgb, var(--primary-foreground) 36%, transparent); padding-left: 7px; font-size: 14px; line-height: 1; }
+.exportMenu[open] .exportTrigger > span { transform: rotate(180deg); }
+.exportPopover { position: absolute; top: calc(100% + 10px); right: 0; z-index: 30; display: grid; gap: 8px; width: min(320px, calc(100vw - 32px)); padding: 14px; color: var(--ink); border: 1px solid var(--line-strong); border-radius: 15px; background: var(--panel); box-shadow: 0 16px 44px rgb(31 23 17 / .2); }
+.exportPopoverTitle { margin: 0 0 2px; color: var(--dim); font: 10px/1.2 var(--font-geist-mono), monospace; letter-spacing: .12em; text-transform: uppercase; }
 
 .layout { display: grid; grid-template-columns: minmax(220px, 285px) minmax(430px, 1fr) minmax(260px, 320px); min-height: calc(100vh - 72px); }
 .rail { background: color-mix(in srgb, var(--card) 68%, var(--background)); border-right: 1px solid var(--line); padding: 25px 20px 34px; }
@@ -214,11 +223,10 @@
 .progressLabel { display: flex; justify-content: space-between; margin-top: 8px; color: var(--dim); font: 9px/1 var(--font-geist-mono), monospace; }
 @keyframes progress { from { transform: translateX(-25%); } to { transform: translateX(75%); } }
 
-.exportList { display: grid; gap: 8px; }
 .exportButton { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 42px; padding: 0 11px; color: var(--ink); border: 1px solid var(--line); border-radius: 10px; background: var(--card); text-align: left; font-size: 11px; }
 .exportButton:hover { border-color: var(--orange); }
 .exportButton span { color: var(--dim); font: 9px/1 var(--font-geist-mono), monospace; }
-.exportResult { display: grid; grid-template-columns: 56px 1fr; gap: 10px; align-items: center; margin-top: 12px; padding: 10px; border: 1px solid var(--mint); border-radius: 12px; background: color-mix(in srgb, var(--status-success) 8%, var(--card)); }
+.exportResult { display: grid; grid-template-columns: 56px 1fr; gap: 10px; align-items: center; margin-top: 2px; padding: 10px; border: 1px solid var(--mint); border-radius: 12px; background: color-mix(in srgb, var(--status-success) 8%, var(--card)); }
 .exportPreview { width: 56px; height: 56px; object-fit: cover; border: 1px solid var(--line); background: var(--panel); }
 .exportDetails { min-width: 0; display: grid; gap: 4px; }
 .exportDetails strong { overflow: hidden; color: var(--ink); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
@@ -246,6 +254,7 @@
   .status { display: none; }
   .siteLink { min-height: 36px; padding: 0 10px; font-size: 11px; }
   .topActions .orangeButton { min-height: 36px; padding: 0 12px; font-size: 11px; }
+  .exportTrigger > span { width: 17px; height: 17px; padding-left: 6px; }
   .layout { display: block; }
   .rail, .rightRail { border: 0; border-bottom: 1px solid var(--line); }
   .rail { padding: 22px 17px; }
