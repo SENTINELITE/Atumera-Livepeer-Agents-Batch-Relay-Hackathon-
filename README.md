@@ -2,6 +2,13 @@
 
 [Batch Relay](https://batchrelay.com) · Atumera Livepeer Agent Hackathon project
 
+**Live demo:** [Creative desk](https://atumera-livepeer-batch-relay.vercel.app/creative) · [Storefront](https://atumera-livepeer-batch-relay.vercel.app/)
+
+The hosted editor supports local composition, WebMCP edits, and PNG export.
+Livepeer generation currently runs in the local demo, where its job journal has
+durable storage. The hosted demo shows the previously generated sample and
+does not accept new provider jobs.
+
 **Track 1 — Livepeer Agent Builder.** Livepeer Agent powers the athlete cutout
 and background generation at the center of the Creative workbench.
 
@@ -21,7 +28,7 @@ workbench is the Livepeer hackathon entry.
   background and generate a new scene. The person approves each quoted job.
 - **Editable composition.** Athlete, logo, background, and event text stay as
   independent layers. Local text and layout changes do not start another job.
-- **Agent and person share one project.** Nine WebMCP tools connect the browser
+- **Agent and person share one project.** Eleven WebMCP tools connect the browser
   agent to the visible editor, while the person can finish the artwork directly.
 - **Two real outputs.** The same approved scene exports as a 1080 × 1350 PNG
   card and a 1920 × 1080 PNG banner.
@@ -121,9 +128,9 @@ card and a 1920 × 1080 digital banner from the same deterministic renderer.
 Text corrections and format switches do not spend on image generation.
 
 Its WebMCP surface is documented in [`docs/creative/README.md`](docs/creative/README.md):
-inspect the project, update event details, propose and check a background,
-apply a reviewed candidate, switch layout, export PNGs, and undo or redo. A
-background proposal only returns a bounded estimate or pending job reference;
+inspect the project, update event details, propose and check a background or
+athlete cutout, apply each reviewed candidate, switch layout, export PNGs, and
+undo or redo. A proposal only returns a bounded estimate or pending job reference;
 the person must approve the visible quote before the server can execute it.
 The browser agent never waits for the provider job, and it cannot silently
 confirm spend.
@@ -140,6 +147,8 @@ for the short video plan.
 - Live generation needs registered-participant access configured on the server;
   the public repository contains no provider credentials. Local editing and
   PNG export work without them.
+- The Vercel deployment has no durable Livepeer job journal. New provider jobs
+  are disabled there; use the configured local demo to show live generation.
 - Agent control requires a WebMCP-capable browser and agent. The editor has no
   built-in voice client; its manual controls work in an ordinary browser.
 - Livepeer job availability and completion time depend on the provider. The

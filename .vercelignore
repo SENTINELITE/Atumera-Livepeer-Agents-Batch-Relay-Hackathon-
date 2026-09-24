@@ -1,0 +1,4 @@
+.env*
+.creative-data/
+pnpm-lock.yaml
+*.log
