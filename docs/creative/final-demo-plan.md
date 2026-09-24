@@ -1,62 +1,42 @@
 # Creative demo plan
 
-## The story
+## TL;DR
 
-**One athlete photo becomes a game-day card and banner.** Livepeer removes the
-photo background and generates a scene. A browser agent helps direct the scene
-and update event details. The person reviews each cost and chooses the result.
-Batch Relay keeps the athlete, logo, and text editable, then exports both sizes.
+Record a 75–90 second screen video. Show one athlete photo, two Livepeer job estimates, separate approval controls, WebMCP applying each completed result, and card plus banner exports. The project already has a completed background and cutout. Use those results. Do not pay for repeat renders just to get footage.
 
-Target a 90–120 second video. Record the working application, not slides.
+Before recording, restore the original photo and apply the sample background. Keep the completed candidates in the project. This makes each later apply visible.
 
-| Time | Show | Say or caption |
+## Record this
+
+| Time | On screen | Say |
 | --- | --- | --- |
-| 0:00–0:10 | Batch Relay home, then `/creative` with the same brand | "Game-day artwork usually needs several sizes and last-minute changes." |
-| 0:10–0:30 | Source athlete photo; request cutout; show estimate and human approval | "Livepeer processes a copy. The original stays in the local project." |
-| 0:30–0:55 | Ask the browser agent for a background with headline space; show its WebMCP handoff, estimate, and approval | "The agent directs the media job. A person approves its cost." |
-| 0:55–1:15 | Review and apply the completed candidate; show separate athlete, logo, and text layers | "The generated background changes. The supplied layers remain editable." |
-| 1:15–1:35 | Change the date through the agent, move a layer, switch to banner | "These revisions reuse the approved image and do not request another render." |
-| 1:35–1:55 | Export the 1080 × 1350 card and 1920 × 1080 banner; show both files | "One approved scene, two ready-to-use outputs." |
+| 0:00–0:08 | Batch Relay home, then `/creative` | "I need a game-day card and banner from one athlete photo." |
+| 0:08–0:25 | Show the photo. Ask the browser agent to inspect the project and request a cutout estimate and a warm arena background estimate. | "The agent prepares both Livepeer jobs. Each has its own cost approval." |
+| 0:25–0:40 | Show the two estimates and their separate approval buttons. Then show the existing completed cutout and background candidates. | "These results came from earlier approved Livepeer runs." |
+| 0:40–0:58 | Ask the agent to check both completed jobs and apply each candidate through WebMCP. Show the proof after each apply. | "The cutout and scene are separate. I can choose either result without replacing my text or logo." |
+| 0:58–1:12 | Change the event date, move a layer, switch to banner. | "Event edits reuse the approved images. No render needed." |
+| 1:12–1:30 | Export card and banner PNGs. Show both files. | "One project, two sizes." |
 
-Use a real completed job in the recording if the participant connection is
-available. If a cached result is shown, label it as a previously generated
-sample. Edit out waiting time with an honest cut; do not imply an instant render.
-Never show endpoint values, access codes, session secrets, or private project
-data in the video.
+Cut out provider waiting time. Label any existing result **Previously generated with Livepeer**. Do not imply the fresh estimates produced those older candidates.
 
-## Agent prompts to rehearse
+## Agent prompts
 
-> Inspect this Creative project. Propose a warm arena background with clean
-> space behind the event title. Keep the athlete photo, logo, and text as
-> separate layers. Stop at the estimate so I can decide whether to render.
+First:
 
-After reviewing and applying the result:
+> Inspect this Creative project. Request an athlete cutout estimate and a warm arena background estimate with clear space for the title. Stop at the estimates. Do not approve either cost.
 
-> Change the event date to October 24, switch to the banner layout, and export
-> the banner PNG. Keep the approved background.
+After showing the completed candidates:
 
-The first prompt makes the agent's Livepeer role visible. The second proves
-that an ordinary event change reuses the completed media job.
+> Check the completed cutout and background jobs. Apply the cutout candidate, then the background candidate through WebMCP. Inspect the project again between changes so you use its current revision.
 
-## Finish in this order
+Last:
 
-1. Verify the new `/creative` branding and the full card and banner layout in
-   a fresh desktop browser. Check mobile for overflow and readable controls.
-2. Configure the standalone Atumera app's server-only Livepeer participant
-   connection. Confirm one estimate, one human-approved cutout or background
-   job, candidate review, and a successful export. Do not spend on repeated
-   renders just to polish the recording.
-3. Rehearse the exact agent prompt and WebMCP calls, then record the shortest
-   reliable path. Capture the estimate and approval clearly.
-4. Verify both downloaded PNG dimensions, sample-asset permissions, and the
-   final video URL. Use the standalone [Atumera repository](https://github.com/SENTINELITE/Atumera-Livepeer-Agents-Batch-Relay-Hackathon-)
-   for the submission. Do not push to the WebMCP OpenAI Hackathon repository or
-   change its main branch.
-5. Submit the repository and video links with the organizer's six-digit code;
-   save the on-screen receipt. The [official submission form](https://atumera.com/hackathon/submit)
-   lists those links and the code as required inputs. The [event page](https://atumera.com/hackathon)
-   gives the deadline as September 24, 2026 at 23:59 Europe/Athens.
+> Change the demo event date to OCT 24 · 2026, switch to the banner, and export both the portrait card and banner PNGs. Reuse the approved images.
 
-The live submission form is the deadline source; an older details document
-still lists September 21. A local build and a recorded demo do not establish
-a saved submission.
+## Before submitting
+
+1. Watch the video once with sound on. Confirm the estimates, separate approval controls, WebMCP actions, and finished proof are readable.
+2. Open both PNGs and confirm the card is 1080 × 1350 and the banner is 1920 × 1080.
+3. Submit the video URL and the [standalone Atumera repository](https://github.com/SENTINELITE/Atumera-Livepeer-Agents-Batch-Relay-Hackathon-) with your organizer code. Save the submission receipt.
+
+Keep passcodes, endpoint values, and private data off screen. If a new provider run is necessary, approve each quoted cost deliberately. The WebMCP tools cannot approve a charge for you.
