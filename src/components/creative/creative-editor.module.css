@@ -172,7 +172,6 @@
 .artLogo { position: absolute; z-index: 3; right: 7%; bottom: 7%; width: 23%; max-height: 14%; object-fit: contain; object-position: right bottom; }
 .banner .artLogo { width: 18%; right: 7%; bottom: 10%; }
 .sampleTag { position: absolute; z-index: 4; top: 13px; right: 13px; padding: 5px 7px; color: #d2dfd9; border: 1px solid rgb(210 223 217 / .35); background: rgb(14 20 21 / .54); font: 8px/1 var(--font-geist-mono), monospace; letter-spacing: .1em; text-transform: uppercase; }
-.candidateAppliedTag { border-color: var(--mint); color: var(--mint); }
 
 .underCanvas { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 16px; }
 .recovery { display: inline-flex; align-items: center; gap: 8px; color: var(--dim); font: 10px/1.4 var(--font-geist-mono), monospace; }
