@@ -71,7 +71,7 @@
 
 .layout { display: grid; grid-template-columns: minmax(220px, 285px) minmax(430px, 1fr) minmax(260px, 320px); min-height: calc(100vh - 72px); }
 .rail { background: color-mix(in srgb, var(--card) 68%, var(--background)); border-right: 1px solid var(--line); padding: 25px 20px 34px; }
-.rightRail { border-left: 1px solid var(--line); border-right: 0; }
+.rightRail { display: flex; flex-direction: column; border-left: 1px solid var(--line); border-right: 0; }
 .railSection { padding-bottom: 26px; margin-bottom: 24px; border-bottom: 1px solid var(--line); }
 .railSection:last-child { border-bottom: 0; }
 .eyebrow { color: var(--dim); font: 10px/1.3 var(--font-geist-mono), monospace; letter-spacing: .14em; text-transform: uppercase; margin: 0 0 13px; }
@@ -173,15 +173,23 @@
 .banner .artLogo { width: 18%; right: 7%; bottom: 10%; }
 .sampleTag { position: absolute; z-index: 4; top: 13px; right: 13px; padding: 5px 7px; color: #d2dfd9; border: 1px solid rgb(210 223 217 / .35); background: rgb(14 20 21 / .54); font: 8px/1 var(--font-geist-mono), monospace; letter-spacing: .1em; text-transform: uppercase; }
 
-.underCanvas { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 16px; }
 .recovery { display: inline-flex; align-items: center; gap: 8px; color: var(--dim); font: 10px/1.4 var(--font-geist-mono), monospace; }
 .recoveryDot { width: 6px; height: 6px; background: var(--mint); border-radius: 50%; }
+.rightRailStatus { position: sticky; bottom: 14px; z-index: 5; display: flex; align-items: center; gap: 9px; margin-top: auto; padding: 11px 12px; border: 1px solid var(--line); border-radius: 11px; color: var(--muted); background: var(--card); box-shadow: 0 6px 18px rgb(0 0 0 / .12); font: 10px/1.4 var(--font-geist-mono), monospace; }
+.rightRailStatus .recoveryDot { flex: none; }
 .history { display: flex; gap: 5px; }
 .iconButton { width: 34px; height: 34px; color: var(--muted); border: 1px solid var(--line); border-radius: 50%; background: var(--card); font-size: 17px; line-height: 1; }
 .iconButton:hover:not(:disabled) { color: var(--ink); border-color: var(--line-strong); }
 
 .candidateCarousel { margin-top: 9px; }
-.candidate { display: grid; gap: 9px; padding: 10px; margin-top: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--card); transition: border-color 150ms ease; }
+.candidateDeck { display: grid; grid-template-columns: 39px minmax(0, 1fr) 39px; align-items: stretch; gap: 6px; margin-top: 8px; }
+.candidateDeckSingle { grid-template-columns: minmax(0, 1fr); }
+.candidatePeek { min-width: 0; padding: 0; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface-warm); opacity: .64; cursor: pointer; transition: opacity 150ms ease, border-color 150ms ease, transform 150ms ease; }
+.candidatePeek:hover, .candidatePeek:focus-visible { border-color: var(--orange); opacity: 1; transform: translateY(-2px); }
+.candidatePeek img, .candidatePeekFallback { display: block; width: 100%; height: 100%; object-fit: cover; }
+.candidatePeekFallback { background: linear-gradient(145deg, #183e3a, #b45d39); }
+.candidatePeekSpacer { display: block; }
+.candidate { display: grid; min-width: 0; gap: 9px; padding: 8px; margin-top: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--card); transition: border-color 150ms ease; }
 .candidate:hover { border-color: var(--line-strong); }
 .candidate.selected { border-color: var(--mint); box-shadow: inset 3px 0 var(--mint); }
 .candidateVisual { position: relative; aspect-ratio: 16 / 8.5; background: linear-gradient(145deg, #183e3a, #b45d39); overflow: hidden; }
@@ -191,7 +199,7 @@
 .candidateVisual.revision { background: linear-gradient(145deg, #283e2f, #9f733d 53%, #bb4f3e); }
 .candidateVisual span { position: absolute; z-index: 1; top: 8px; left: 8px; right: 8px; color: rgb(255 247 238 / .92); font: 9px/1.25 var(--font-geist-mono), monospace; letter-spacing: .04em; text-transform: uppercase; overflow-wrap: anywhere; text-shadow: 0 1px 6px rgb(0 0 0 / .8); }
 .candidateInfo { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.candidateInfo strong { font-size: 12px; font-weight: 600; }
+.candidateInfo strong { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 .candidateInfo span { color: var(--dim); font: 9px/1 var(--font-geist-mono), monospace; }
 .candidateWarning { margin: -2px 0 0; padding: 7px 8px; color: var(--status-error); border: 1px solid color-mix(in srgb, var(--status-error) 24%, var(--line)); border-radius: 8px; background: color-mix(in srgb, var(--status-error) 6%, var(--card)); font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
 .candidateAction { width: 100%; min-height: 34px; color: var(--ink); border: 1px solid var(--line); border-radius: 999px; background: var(--card); font-size: 11px; }
@@ -200,7 +208,7 @@
 .carouselPrevious { animation: candidateEnterPrevious 180ms ease both; }
 @keyframes candidateEnterNext { from { opacity: 0; transform: translateX(5px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes candidateEnterPrevious { from { opacity: 0; transform: translateX(-5px); } to { opacity: 1; transform: translateX(0); } }
-@media (prefers-reduced-motion: reduce) { .carouselNext, .carouselPrevious { animation: none; } .carouselButton { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .carouselNext, .carouselPrevious { animation: none; } .carouselButton, .candidatePeek { transition: none; } }
 
 .directionCard { padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); box-shadow: 0 4px 14px rgb(77 43 21 / .035); }
 .directionText { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
@@ -241,7 +249,8 @@
   .layout { grid-template-columns: 240px minmax(390px, 1fr); }
   .rightRail { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; border-left: 0; border-top: 1px solid var(--line); }
   .rightRail .railSection { margin: 0; }
-  .rightRail .railSection:last-child { grid-column: 1 / -1; }
+  .rightRail .railSection:last-of-type { grid-column: 1 / -1; }
+  .rightRailStatus { position: static; grid-column: 1 / -1; margin-top: 0; }
 }
 
 @media (max-width: 760px) {
@@ -266,5 +275,4 @@
   .main { padding: 20px 12px 30px; }
   .proofStage { min-height: 520px; padding: 18px 14px; }
   .proofFrame { width: min(100%, 440px); }
-  .underCanvas { align-items: flex-start; flex-direction: column; }
 }
