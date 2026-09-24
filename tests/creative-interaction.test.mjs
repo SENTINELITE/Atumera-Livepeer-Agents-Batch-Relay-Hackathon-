@@ -7,9 +7,12 @@ import {
   fitImageTransformToAspect,
   hitTestCreativeLayer,
   imageInteractionRect,
+  normalizeBackgroundTransform,
+  panBackground,
   resizeImageFromCorner,
   resizeImageProportionally,
   setTextFontSize,
+  zoomBackground,
 } from "../src/lib/creative/interaction.ts";
 
 test("hit testing follows topmost paint order and contain image bounds", () => {
@@ -25,6 +28,22 @@ test("hit testing follows topmost paint order and contain image bounds", () => {
   assert.equal(hitTestCreativeLayer({ x: athlete.x * 1080 + 2, y: athlete.y * 1350 + 2 }, project.layouts.card, "card", {}, { athlete: true, background: false, logo: false }), "athlete");
   const title = project.layouts.card.text.find((layer) => layer.id === "event-name");
   assert.equal(hitTestCreativeLayer({ x: title.transform.x * 1080 + 2, y: title.transform.y * 1350 + 2 }, project.layouts.card, "card", {}, { athlete: true, background: false, logo: false }), "text:event-name");
+});
+
+test("background zoom and pan keep both output edges covered", () => {
+  const legacy = normalizeBackgroundTransform({ x: -0.1, y: 0.064, width: 1, height: 1, fit: "cover" });
+  assert.deepEqual({ x: legacy.x, y: legacy.y, width: legacy.width, height: legacy.height }, { x: 0, y: 0, width: 1, height: 1 });
+  assert.deepEqual(panBackground(legacy, { x: -0.4, y: 0.3 }), legacy);
+  const zoomed = zoomBackground(legacy, 150);
+  assert.equal(zoomed.width, 1.5);
+  assert.equal(zoomed.height, 1.5);
+  assert.equal(zoomed.x, -0.25);
+  assert.equal(zoomed.y, -0.25);
+  const left = panBackground(zoomed, { x: -9, y: 9 });
+  assert.equal(left.x, -0.5);
+  assert.equal(left.y, 0);
+  assert.equal(zoomBackground(left, 100).x, 0);
+  assert.equal(zoomBackground(left, 100).y, 0);
 });
 
 test("position clamps preserve a selectable portion and image resizing preserves aspect", () => {

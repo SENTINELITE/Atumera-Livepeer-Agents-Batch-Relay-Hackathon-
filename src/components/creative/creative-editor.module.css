@@ -114,6 +114,9 @@
 .inspectorGrid small, .inspectorField small { color: var(--dim); font-size: 9px; }
 .inspectorGrid input, .inspectorField input { width: 100%; min-height: 34px; color: var(--ink); border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card); padding: 5px 8px; font: 11px/1 var(--font-geist-mono), monospace; }
 .inspectorGrid input:focus, .inspectorField input:focus { border-color: var(--orange); outline: none; }
+.inspectorGrid input:disabled { opacity: .55; cursor: not-allowed; }
+.backgroundZoom { display: grid; gap: 8px; }
+.backgroundZoom input[type="range"] { width: 100%; accent-color: var(--orange); cursor: pointer; }
 .alignmentControl { display: grid; gap: 6px; color: var(--muted); font: 9px/1 var(--font-geist-mono), monospace; }
 .alignmentControl > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
 .alignmentControl button { min-height: 32px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; background: var(--card); font-size: 10px; text-transform: capitalize; }

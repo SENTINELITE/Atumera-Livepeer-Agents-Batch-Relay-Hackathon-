@@ -75,6 +75,31 @@ export function moveLayer(transform: CreativeLayerTransform, delta: CreativeInte
   return { ...transform, ...position };
 }
 
+/** Background bounds always cover the output, so 100% has no room to pan. */
+export function normalizeBackgroundTransform(transform: CreativeLayerTransform): CreativeLayerTransform {
+  const zoom = clamp(finite(transform.width, 1), 1, 2);
+  return {
+    ...transform,
+    x: clamp(finite(transform.x, (1 - zoom) / 2), 1 - zoom, 0),
+    y: clamp(finite(transform.y, (1 - zoom) / 2), 1 - zoom, 0),
+    width: zoom,
+    height: zoom,
+    fit: "cover",
+  };
+}
+
+export function zoomBackground(transform: CreativeLayerTransform, percent: number): CreativeLayerTransform {
+  const current = normalizeBackgroundTransform(transform);
+  const zoom = clamp(finite(percent, current.width * 100) / 100, 1, 2);
+  const centerX = (0.5 - current.x) / current.width;
+  const centerY = (0.5 - current.y) / current.height;
+  return normalizeBackgroundTransform({ ...current, width: zoom, height: zoom, x: 0.5 - centerX * zoom, y: 0.5 - centerY * zoom });
+}
+
+export function panBackground(transform: CreativeLayerTransform, position: CreativeInteractionPoint): CreativeLayerTransform {
+  return normalizeBackgroundTransform({ ...normalizeBackgroundTransform(transform), ...position });
+}
+
 /** Resize an image by output-surface width while retaining its transform aspect ratio. */
 export function resizeImageProportionally(transform: CreativeLayerTransform, widthRatio: number): CreativeLayerTransform {
   const requestedScale = finite(widthRatio, transform.width) / Math.max(transform.width, 0.0001);

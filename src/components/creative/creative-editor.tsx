@@ -15,7 +15,7 @@ import { exportCreativePng, renderCreative } from "@/lib/creative/renderer";
 import { createIndexedDbCreativePersistence, loadCreativeProject, saveCreativeProject } from "@/lib/creative/persistence";
 import type { CreativeAssetReference, CreativeCutoutCandidate, CreativeFormat, CreativeProject } from "@/lib/creative/types";
 import { CREATIVE_FORMAT_DIMENSIONS, type CreativeLayerTransform, type CreativeTextLayer } from "@/lib/creative/types";
-import { clampLayerPosition, fitImageTransformToAspect, hitTestCreativeLayer, interactionRectForLayer, layerLabel, moveLayer, resizeImageFromCorner, resizeImageProportionally, setTextFontSize, textFontSizePixels, type CreativeImageDimensions, type CreativeInteractionLayer, type CreativeResizeCorner } from "@/lib/creative/interaction";
+import { clampLayerPosition, fitImageTransformToAspect, hitTestCreativeLayer, interactionRectForLayer, layerLabel, moveLayer, normalizeBackgroundTransform, panBackground, resizeImageFromCorner, resizeImageProportionally, setTextFontSize, textFontSizePixels, zoomBackground, type CreativeImageDimensions, type CreativeInteractionLayer, type CreativeResizeCorner } from "@/lib/creative/interaction";
 
 type Format = CreativeFormat;
 type JobStatus = "idle" | "estimating" | "quoted" | "queued" | "running" | "succeeded" | "failed" | "unconfigured";
@@ -160,9 +160,10 @@ type NumericFieldProps = {
   onCommit: (value: number) => void;
   min?: number;
   max?: number;
+  disabled?: boolean;
 };
 
-function NumericField({ label, unit, value, onCommit, min, max }: NumericFieldProps) {
+function NumericField({ label, unit, value, onCommit, min, max, disabled }: NumericFieldProps) {
   const [draft, setDraft] = useState(String(value));
   const [editing, setEditing] = useState(false);
   const cancelOnBlur = useRef(false);
@@ -192,7 +193,14 @@ function NumericField({ label, unit, value, onCommit, min, max }: NumericFieldPr
     input.blur();
   };
 
-  return <label className={styles.inspectorField}><span>{label} <small>{unit}</small></span><input type="number" inputMode="decimal" min={min} max={max} step="1" value={editing ? draft : String(value)} onFocus={() => { cancelOnBlur.current = false; setEditing(true); setDraft(String(value)); }} onChange={(event) => { setEditing(true); setDraft(event.currentTarget.value); }} onBlur={finish} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } else if (event.key === "Escape") { event.preventDefault(); cancel(event.currentTarget); } }} /></label>;
+  return <label className={styles.inspectorField}><span>{label} <small>{unit}</small></span><input type="number" inputMode="decimal" min={min} max={max} step="1" disabled={disabled} value={editing ? draft : String(value)} onFocus={() => { cancelOnBlur.current = false; setEditing(true); setDraft(String(value)); }} onChange={(event) => { setEditing(true); setDraft(event.currentTarget.value); }} onBlur={finish} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } else if (event.key === "Escape") { event.preventDefault(); cancel(event.currentTarget); } }} /></label>;
+}
+
+function BackgroundZoomField({ value, onPreview, onCommit }: { value: number; onPreview: (value: number) => void; onCommit: (value: number) => void }) {
+  const [draft, setDraft] = useState(value);
+  const lastCommitted = useRef(value);
+  const finish = () => { if (draft !== lastCommitted.current) { lastCommitted.current = draft; onCommit(draft); } };
+  return <div className={styles.backgroundZoom}><NumericField label="ZOOM" unit="%" min={100} max={200} value={value} onCommit={onCommit} /><input type="range" aria-label="Background zoom" min="100" max="200" step="1" value={draft} onChange={(event) => { const next = Number(event.currentTarget.value); setDraft(next); onPreview(next); }} onPointerUp={finish} onKeyUp={finish} onBlur={finish} /></div>;
 }
 
 function imageElementFromBlob(blob: Blob): Promise<HTMLImageElement> {
@@ -304,6 +312,11 @@ export default function CreativeEditor() {
           if (blob) urls[candidate.asset.blobKey] = URL.createObjectURL(blob);
         }
         let recoveredProject = saved;
+        const normalizedLayouts = { ...saved.layouts };
+        for (const format of ["card", "banner"] as const) {
+          normalizedLayouts[format] = { ...normalizedLayouts[format], background: normalizeBackgroundTransform(normalizedLayouts[format].background) };
+        }
+        recoveredProject = { ...recoveredProject, layouts: normalizedLayouts };
         const uploadedAthlete = saved.assets.athlete;
         if (uploadedAthlete?.source === "upload" && (["card", "banner"] as const).some((format) => saved.layouts[format].athlete.fit !== "contain")) {
           const sourceBlob = await persistence.current.loadAssetBlob(uploadedAthlete.blobKey);
@@ -313,12 +326,12 @@ export default function CreativeEditor() {
             const height = uploadedAthlete.height ?? sourceImage.naturalHeight;
             if (width > 0 && height > 0) {
               const sourceAspect = width / height;
-              const layouts = { ...saved.layouts };
+              const layouts = { ...recoveredProject.layouts };
               for (const format of ["card", "banner"] as const) {
                 layouts[format] = { ...layouts[format], athlete: fitAthleteTransform(layouts[format].athlete, sourceAspect, format) };
               }
               const sizedReference = { ...uploadedAthlete, width, height };
-              recoveredProject = updateProject(saved, {
+              recoveredProject = updateProject(recoveredProject, {
                 assets: { ...saved.assets, athlete: sizedReference },
                 athleteOriginal: saved.athleteOriginal?.id === uploadedAthlete.id ? sizedReference : saved.athleteOriginal,
                 layouts,
@@ -613,8 +626,8 @@ export default function CreativeEditor() {
     const transform = projectLayerTransform(project, layer);
     if (!transform) return;
     const dimensions = CREATIVE_FORMAT_DIMENSIONS[project.format];
-    const nextPosition = clampLayerPosition(transform, axis === "x" ? value / dimensions.width : transform.x, axis === "y" ? value / dimensions.height : transform.y);
-    commitLayerTransform(layer, { ...transform, ...nextPosition });
+    const position = { x: axis === "x" ? value / dimensions.width : transform.x, y: axis === "y" ? value / dimensions.height : transform.y };
+    commitLayerTransform(layer, layer === "background" ? panBackground(transform, position) : { ...transform, ...clampLayerPosition(transform, position.x, position.y) });
   }, [commitLayerTransform, project]);
 
   const resizeSelectedImage = useCallback((value: number) => {
@@ -624,6 +637,14 @@ export default function CreativeEditor() {
     const dimensions = CREATIVE_FORMAT_DIMENSIONS[project.format];
     commitLayerTransform(selectedLayer, resizeImageProportionally(transform, value / dimensions.width));
   }, [commitLayerTransform, project, selectedLayer]);
+
+  const updateBackgroundZoom = useCallback((value: number, preview = false) => {
+    const transform = projectLayerTransform(project, "background");
+    if (!transform) return;
+    const next = zoomBackground(transform, value);
+    if (preview) setInteractionPreview({ layer: "background", transform: next });
+    else { setInteractionPreview(null); if (next.width !== transform.width || next.x !== transform.x || next.y !== transform.y) commitLayerTransform("background", next); }
+  }, [commitLayerTransform, project]);
 
   const updateSelectedTextSize = useCallback((value: number) => {
     if (!selectedLayer?.startsWith("text:") || !Number.isFinite(value)) return;
@@ -726,7 +747,7 @@ export default function CreativeEditor() {
     drag.moved = true;
     const nextTransform = drag.mode === "resize" && drag.corner
       ? resizeImageFromCorner(drag.transform, dimensions.width, dimensions.height, drag.start, point, drag.corner)
-      : moveLayer(drag.transform, delta);
+      : drag.layer === "background" ? panBackground(drag.transform, { x: drag.transform.x + delta.x, y: drag.transform.y + delta.y }) : moveLayer(drag.transform, delta);
     drag.latest = nextTransform;
     setInteractionPreview({ layer: drag.layer, transform: nextTransform });
   }, [canvasPoint, project.format, project.revision]);
@@ -736,7 +757,7 @@ export default function CreativeEditor() {
     if (!drag || drag.pointerId !== event.pointerId) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     if (!cancelled && drag.moved && drag.format === project.format && drag.revision === project.revision) {
-      commitLayerTransform(drag.layer, drag.latest);
+      if (drag.latest.x !== drag.transform.x || drag.latest.y !== drag.transform.y || drag.latest.width !== drag.transform.width || drag.latest.height !== drag.transform.height) commitLayerTransform(drag.layer, drag.latest);
     }
     dragState.current = null;
     setInteractionPreview(null);
@@ -759,7 +780,9 @@ export default function CreativeEditor() {
     if (!transform) return;
     const dimensions = CREATIVE_FORMAT_DIMENSIONS[project.format];
     const step = event.shiftKey ? 10 : 1;
-    commitLayerTransform(selectedLayer, moveLayer(transform, { x: (direction.x * step) / dimensions.width, y: (direction.y * step) / dimensions.height }));
+    const delta = { x: (direction.x * step) / dimensions.width, y: (direction.y * step) / dimensions.height };
+    const next = selectedLayer === "background" ? panBackground(transform, { x: transform.x + delta.x, y: transform.y + delta.y }) : moveLayer(transform, delta);
+    if (next.x !== transform.x || next.y !== transform.y) commitLayerTransform(selectedLayer, next);
   }, [commitLayerTransform, project, selectedLayer]);
 
   const exportArtwork = useCallback(async (requestedFormat = project.format) => {
@@ -931,8 +954,8 @@ export default function CreativeEditor() {
             <label className={styles.layerSelectLabel} htmlFor="creative-layer-select">LAYER</label><select id="creative-layer-select" className={styles.layerSelect} value={selectedLayer ?? ""} onChange={(event) => setSelectedLayer((event.target.value || null) as CreativeInteractionLayer | null)}><option value="">Choose a layer…</option>{layerOptions.map((layer) => <option key={layer} value={layer}>{layerLabel(layer)}</option>)}</select>
             {selectedLayer && selectedTransform && <div className={styles.layerInspector} aria-label={`${layerLabel(selectedLayer)} controls`}>
               <div className={styles.inspectorTitle}><strong>{layerLabel(selectedLayer)}</strong><span>LAYOUT / {project.format.toUpperCase()}</span></div>
-              <div className={styles.inspectorGrid}><NumericField label="X" unit="px" value={Math.round(selectedTransform.x * canvasDimensions.width)} onCommit={(value) => updateLayerPositionPixels(selectedLayer, "x", value)} /><NumericField label="Y" unit="px" value={Math.round(selectedTransform.y * canvasDimensions.height)} onCommit={(value) => updateLayerPositionPixels(selectedLayer, "y", value)} /></div>
-              {selectedLayer === "background" || selectedLayer === "athlete" || selectedLayer === "logo" ? <NumericField label="WIDTH" unit="px · aspect locked" min={40} max={Math.round(canvasDimensions.width * 1.8)} value={Math.round(selectedTransform.width * canvasDimensions.width)} onCommit={resizeSelectedImage} /> : null}
+              <div className={styles.inspectorGrid}><NumericField label="X" unit="px" disabled={selectedLayer === "background" && selectedTransform.width <= 1} value={Math.round(selectedTransform.x * canvasDimensions.width)} onCommit={(value) => updateLayerPositionPixels(selectedLayer, "x", value)} /><NumericField label="Y" unit="px" disabled={selectedLayer === "background" && selectedTransform.width <= 1} value={Math.round(selectedTransform.y * canvasDimensions.height)} onCommit={(value) => updateLayerPositionPixels(selectedLayer, "y", value)} /></div>
+              {selectedLayer === "background" ? <BackgroundZoomField key={`${project.format}-${Math.round(selectedTransform.width * 100)}`} value={Math.round(selectedTransform.width * 100)} onPreview={(value) => updateBackgroundZoom(value, true)} onCommit={(value) => updateBackgroundZoom(value)} /> : selectedLayer === "athlete" || selectedLayer === "logo" ? <NumericField label="WIDTH" unit="px · aspect locked" min={40} max={Math.round(canvasDimensions.width * 1.8)} value={Math.round(selectedTransform.width * canvasDimensions.width)} onCommit={resizeSelectedImage} /> : null}
               {selectedText ? <><NumericField label="FONT SIZE" unit="px" min={10} max={Math.round(canvasDimensions.width * 0.25)} value={textFontSizePixels(selectedText, canvasDimensions.width)} onCommit={updateSelectedTextSize} /><div className={styles.alignmentControl}><span>ALIGNMENT</span><div>{(["left", "center", "right"] as const).map((align) => <button key={align} className={selectedText.align === align ? styles.alignmentSelected : ""} type="button" aria-pressed={selectedText.align === align} onClick={() => updateSelectedTextAlignment(align)}>{align}</button>)}</div></div><p className={styles.inspectorHint}>Long text wraps to fit the layer.</p></> : null}
             </div>}
           </section>
