@@ -152,6 +152,9 @@
 .layerInteraction { position: absolute; inset: 0; z-index: 8; cursor: grab; touch-action: none; }
 .layerInteraction:active { cursor: grabbing; }
 .selectedOutline { position: absolute; z-index: 1; border: 1px dashed var(--orange); box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange) 38%, transparent), inset 0 0 0 1px rgb(255 255 255 / .16); pointer-events: none; }
+.resizeHandle { position: absolute; z-index: 2; width: 12px; height: 12px; border: 1px solid #fff8ef; border-radius: 3px; background: var(--orange); box-shadow: 0 1px 5px rgb(0 0 0 / .52); transform: translate(-50%, -50%); touch-action: none; }
+.resizeHandle[data-resize-corner="nw"], .resizeHandle[data-resize-corner="se"] { cursor: nwse-resize; }
+.resizeHandle[data-resize-corner="ne"], .resizeHandle[data-resize-corner="sw"] { cursor: nesw-resize; }
 .artBackground { position: absolute; inset: 0; background: linear-gradient(145deg, #153633 0%, #1c5147 42%, #d46c3c 100%); }
 .artBackground::after { content: ""; position: absolute; inset: 0; background: linear-gradient(120deg, rgb(9 25 25 / .72) 0%, transparent 63%), linear-gradient(0deg, rgb(9 18 19 / .58), transparent 48%); }
 .backgroundTexture { position: absolute; inset: 0; opacity: .15; background-image: repeating-linear-gradient(115deg, transparent 0 22px, rgb(255 255 255 / .18) 23px 24px); mix-blend-mode: overlay; }

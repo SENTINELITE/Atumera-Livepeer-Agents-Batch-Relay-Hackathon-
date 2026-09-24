@@ -4,8 +4,10 @@ import test from "node:test";
 import { createProject, updateProject } from "../src/lib/creative/project.ts";
 import {
   clampLayerPosition,
+  fitImageTransformToAspect,
   hitTestCreativeLayer,
   imageInteractionRect,
+  resizeImageFromCorner,
   resizeImageProportionally,
   setTextFontSize,
 } from "../src/lib/creative/interaction.ts";
@@ -35,6 +37,28 @@ test("position clamps preserve a selectable portion and image resizing preserves
   assert.ok(Math.abs(tall.width / tall.height - (0.1 / 1.2)) < Number.EPSILON * 4);
   const wide = resizeImageProportionally({ x: 0.1, y: 0.1, width: 1.2, height: 0.1 }, 0.2);
   assert.ok(Math.abs(wide.width / wide.height - (1.2 / 0.1)) < Number.EPSILON * 4);
+});
+
+test("uploaded athlete framing preserves source aspect in both output formats", () => {
+  const sourceAspect = 2000 / 2501;
+  const card = fitImageTransformToAspect({ x: 0.04, y: 0.3, width: 0.92, height: 0.55, fit: "cover" }, sourceAspect, 1080, 1350, 0.92, 0.68);
+  const banner = fitImageTransformToAspect({ x: 0.42, y: 0.1, width: 0.58, height: 0.9, fit: "cover" }, sourceAspect, 1920, 1080, 0.58, 0.9);
+  assert.equal(card.fit, "contain");
+  assert.equal(banner.fit, "contain");
+  assert.ok(Math.abs((card.width * 1080) / (card.height * 1350) - sourceAspect) < 1e-12);
+  assert.ok(Math.abs((banner.width * 1920) / (banner.height * 1080) - sourceAspect) < 1e-12);
+  assert.ok(card.width <= 0.92 && card.height <= 0.68);
+  assert.ok(banner.width <= 0.58 && banner.height <= 0.9);
+});
+
+test("corner resizing keeps the opposite corner fixed and retains pixel aspect", () => {
+  const original = { x: 0.2, y: 0.2, width: 0.4, height: 0.5, fit: "contain" };
+  const resized = resizeImageFromCorner(original, 1080, 1350, { x: 648, y: 945 }, { x: 864, y: 1282.5 }, "se");
+  assert.equal(resized.x, original.x);
+  assert.equal(resized.y, original.y);
+  assert.ok(Math.abs(resized.width / resized.height - original.width / original.height) < 1e-12);
+  assert.ok(Math.abs(resized.width - original.width * 1.5) < 1e-12);
+  assert.ok(Math.abs(resized.height - original.height * 1.5) < 1e-12);
 });
 
 test("text size grows its box and format layouts stay independent", () => {

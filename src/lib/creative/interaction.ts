@@ -24,6 +24,8 @@ export type CreativeInteractionPoint = {
   y: number;
 };
 
+export type CreativeResizeCorner = "nw" | "ne" | "sw" | "se";
+
 export const INTERACTION_LAYER_LABELS: Record<CreativeInteractionLayer, string> = {
   background: "Background",
   athlete: "Athlete",
@@ -83,6 +85,58 @@ export function resizeImageProportionally(transform: CreativeLayerTransform, wid
   const height = transform.height * scale;
   const position = clampLayerPosition({ ...transform, width, height }, transform.x, transform.y);
   return { ...transform, width, height, ...position };
+}
+
+/** Fits an image inside a format-specific area while matching its intrinsic pixel aspect. */
+export function fitImageTransformToAspect(
+  transform: CreativeLayerTransform,
+  sourceAspect: number,
+  outputWidth: number,
+  outputHeight: number,
+  maxWidth: number,
+  maxHeight: number,
+): CreativeLayerTransform {
+  if (!Number.isFinite(sourceAspect) || sourceAspect <= 0 || outputWidth <= 0 || outputHeight <= 0) return transform;
+  const normalizedAspect = sourceAspect * outputHeight / outputWidth;
+  const height = Math.min(maxHeight, maxWidth / normalizedAspect);
+  const width = height * normalizedAspect;
+  const centerX = transform.x + transform.width / 2;
+  const centerY = transform.y + transform.height / 2;
+  const x = clamp(centerX - width / 2, 0, 1 - width);
+  const y = clamp(centerY - height / 2, 0, 1 - height);
+  return { ...transform, x, y, width, height, fit: "contain" };
+}
+
+/** Resizes from a fixed opposite corner using a uniform scale in output pixels. */
+export function resizeImageFromCorner(
+  transform: CreativeLayerTransform,
+  outputWidth: number,
+  outputHeight: number,
+  start: CreativeInteractionPoint,
+  current: CreativeInteractionPoint,
+  corner: CreativeResizeCorner,
+): CreativeLayerTransform {
+  const rect = {
+    x: transform.x * outputWidth,
+    y: transform.y * outputHeight,
+    width: transform.width * outputWidth,
+    height: transform.height * outputHeight,
+  };
+  const anchorX = corner.endsWith("w") ? rect.x + rect.width : rect.x;
+  const anchorY = corner.startsWith("n") ? rect.y + rect.height : rect.y;
+  const startVector = { x: start.x - anchorX, y: start.y - anchorY };
+  const nextVector = { x: current.x - anchorX, y: current.y - anchorY };
+  const denominator = startVector.x ** 2 + startVector.y ** 2;
+  if (!denominator) return transform;
+  const requestedScale = (nextVector.x * startVector.x + nextVector.y * startVector.y) / denominator;
+  const minScale = Math.max(40 / Math.max(rect.width, 1), 40 / Math.max(rect.height, 1));
+  const maxScale = Math.min(1.8 * outputWidth / Math.max(rect.width, 1), 1.8 * outputHeight / Math.max(rect.height, 1));
+  const scale = clamp(requestedScale, minScale, maxScale);
+  const width = transform.width * scale;
+  const height = transform.height * scale;
+  const x = corner.endsWith("w") ? anchorX / outputWidth - width : anchorX / outputWidth;
+  const y = corner.startsWith("n") ? anchorY / outputHeight - height : anchorY / outputHeight;
+  return { ...transform, x, y, width, height };
 }
 
 /** Text needs a taller box as its requested size grows, otherwise the renderer's fit pass would shrink it back down. */

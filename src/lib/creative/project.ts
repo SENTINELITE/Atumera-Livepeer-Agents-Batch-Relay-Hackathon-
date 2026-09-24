@@ -1,4 +1,5 @@
 import {
+  CREATIVE_FORMAT_DIMENSIONS,
   type CreativeAssetReference,
   type CreativeBackgroundCandidate,
   type CreativeCutoutCandidate,
@@ -11,6 +12,7 @@ import {
   type CreativeProjectUpdate,
   type CreativeTextLayer,
 } from "./types.ts";
+import { fitImageTransformToAspect } from "./interaction.ts";
 
 export type CreativeIdFactory = () => string;
 
@@ -212,14 +214,25 @@ export function applyAthleteCutout(
 /** Restores the retained supplied athlete while leaving cutout candidates available. */
 export function restoreOriginalAthlete(project: CreativeProject, updatedAt = now()): CreativeProject {
   if (!project.athleteOriginal) return project;
+  const originalAthlete = copy(project.athleteOriginal);
   const next = copy(project);
-  next.assets = { ...next.assets, athlete: copy(next.athleteOriginal) };
+  next.assets = { ...next.assets, athlete: originalAthlete };
   for (const format of ["card", "banner"] as const) {
     next.layouts[format] = {
       ...next.layouts[format],
-      athlete: { ...next.layouts[format].athlete, fit: "cover" },
+      athlete: originalAthlete.width && originalAthlete.height
+        ? fitImageTransformToAspect(
+          next.layouts[format].athlete,
+          originalAthlete.width / originalAthlete.height,
+          CREATIVE_FORMAT_DIMENSIONS[format].width,
+          CREATIVE_FORMAT_DIMENSIONS[format].height,
+          format === "card" ? 0.92 : 0.58,
+          0.9,
+        )
+        : { ...next.layouts[format].athlete, fit: "contain" },
     };
   }
+  next.athleteOriginal = originalAthlete;
   next.revision += 1;
   next.updatedAt = updatedAt;
   return next;

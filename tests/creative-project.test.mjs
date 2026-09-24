@@ -131,8 +131,8 @@ test("cutout application fails closed for a stale source or unready candidate", 
   assert.strictEqual(applyAthleteCutout(project, cutout("pending", project.assets.athlete.id, "pending")), project);
 });
 
-test("restoring the original athlete keeps cutout candidates and restores the cover fit", () => {
-  const originalAthlete = asset("athlete-original", "athlete", "upload");
+test("restoring the original athlete keeps cutout candidates and preserves its source aspect", () => {
+  const originalAthlete = { ...asset("athlete-original", "athlete", "upload"), width: 2000, height: 2501 };
   const project = createProject({ id: "cutout-project", assets: { athlete: originalAthlete } });
   const first = applyAthleteCutout(project, cutout("athlete-cutout-1", originalAthlete.id));
   const second = applyAthleteCutout(first, cutout("athlete-cutout-2", originalAthlete.id));
@@ -141,8 +141,10 @@ test("restoring the original athlete keeps cutout candidates and restores the co
 
   assert.equal(restored.assets.athlete.id, originalAthlete.id);
   assert.equal(restored.athleteOriginal.id, originalAthlete.id);
-  assert.equal(restored.layouts.card.athlete.fit, "cover");
-  assert.equal(restored.layouts.banner.athlete.fit, "cover");
+  assert.equal(restored.layouts.card.athlete.fit, "contain");
+  assert.equal(restored.layouts.banner.athlete.fit, "contain");
+  assert.ok(Math.abs((restored.layouts.card.athlete.width * 1080) / (restored.layouts.card.athlete.height * 1350) - 2000 / 2501) < 1e-12);
+  assert.ok(Math.abs((restored.layouts.banner.athlete.width * 1920) / (restored.layouts.banner.athlete.height * 1080) - 2000 / 2501) < 1e-12);
   assert.equal(restored.athleteCutoutCandidates.length, 2);
   assert.equal(restored.revision, withHistory.revision + 1);
 });

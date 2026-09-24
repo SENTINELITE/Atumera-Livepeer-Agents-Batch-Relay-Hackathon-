@@ -15,7 +15,7 @@ import { exportCreativePng, renderCreative } from "@/lib/creative/renderer";
 import { createIndexedDbCreativePersistence, loadCreativeProject, saveCreativeProject } from "@/lib/creative/persistence";
 import type { CreativeAssetReference, CreativeCutoutCandidate, CreativeFormat, CreativeProject } from "@/lib/creative/types";
 import { CREATIVE_FORMAT_DIMENSIONS, type CreativeLayerTransform, type CreativeTextLayer } from "@/lib/creative/types";
-import { clampLayerPosition, hitTestCreativeLayer, interactionRectForLayer, layerLabel, moveLayer, resizeImageProportionally, setTextFontSize, textFontSizePixels, type CreativeImageDimensions, type CreativeInteractionLayer } from "@/lib/creative/interaction";
+import { clampLayerPosition, fitImageTransformToAspect, hitTestCreativeLayer, interactionRectForLayer, layerLabel, moveLayer, resizeImageFromCorner, resizeImageProportionally, setTextFontSize, textFontSizePixels, type CreativeImageDimensions, type CreativeInteractionLayer, type CreativeResizeCorner } from "@/lib/creative/interaction";
 
 type Format = CreativeFormat;
 type JobStatus = "idle" | "estimating" | "quoted" | "queued" | "running" | "succeeded" | "failed" | "unconfigured";
@@ -40,6 +40,8 @@ type InteractionPreview = {
 
 type DragState = {
   layer: CreativeInteractionLayer;
+  mode: "move" | "resize";
+  corner?: CreativeResizeCorner;
   pointerId: number;
   format: Format;
   revision: number;
@@ -48,6 +50,22 @@ type DragState = {
   latest: CreativeLayerTransform;
   moved: boolean;
 };
+
+function fitAthleteTransform(
+  transform: CreativeLayerTransform,
+  sourceAspect: number,
+  format: Format,
+): CreativeLayerTransform {
+  const dimensions = CREATIVE_FORMAT_DIMENSIONS[format];
+  return fitImageTransformToAspect(
+    transform,
+    sourceAspect,
+    dimensions.width,
+    dimensions.height,
+    format === "card" ? 0.92 : 0.58,
+    0.9,
+  );
+}
 
 function historyReducer(state: HistoryState, action: HistoryAction): HistoryState {
   if (action.type === "replace") return { project: action.project, past: [], future: [] };
@@ -285,8 +303,31 @@ export default function CreativeEditor() {
           const blob = await persistence.current.loadAssetBlob(candidate.asset.blobKey);
           if (blob) urls[candidate.asset.blobKey] = URL.createObjectURL(blob);
         }
+        let recoveredProject = saved;
+        const uploadedAthlete = saved.assets.athlete;
+        if (uploadedAthlete?.source === "upload" && (["card", "banner"] as const).some((format) => saved.layouts[format].athlete.fit !== "contain")) {
+          const sourceBlob = await persistence.current.loadAssetBlob(uploadedAthlete.blobKey);
+          if (sourceBlob) {
+            const sourceImage = await imageElementFromBlob(sourceBlob);
+            const width = uploadedAthlete.width ?? sourceImage.naturalWidth;
+            const height = uploadedAthlete.height ?? sourceImage.naturalHeight;
+            if (width > 0 && height > 0) {
+              const sourceAspect = width / height;
+              const layouts = { ...saved.layouts };
+              for (const format of ["card", "banner"] as const) {
+                layouts[format] = { ...layouts[format], athlete: fitAthleteTransform(layouts[format].athlete, sourceAspect, format) };
+              }
+              const sizedReference = { ...uploadedAthlete, width, height };
+              recoveredProject = updateProject(saved, {
+                assets: { ...saved.assets, athlete: sizedReference },
+                athleteOriginal: saved.athleteOriginal?.id === uploadedAthlete.id ? sizedReference : saved.athleteOriginal,
+                layouts,
+              });
+            }
+          }
+        }
         setAssetUrls(urls);
-        dispatchHistory({ type: "replace", project: saved });
+        dispatchHistory({ type: "replace", project: recoveredProject });
         setRecovered(true);
         const pending = saved.generationRefs.find((reference) => reference.status === "queued" || reference.status === "running");
         if (pending) { setJobId(pending.id); setPendingOperation(pending.target === "athlete" ? "cutout" : "background"); setStatus("running"); setStatusMessage(pending.target === "athlete" ? "Resuming athlete cutout…" : "Resuming background generation…"); }
@@ -641,6 +682,17 @@ export default function CreativeEditor() {
     if (event.button !== 0 || !event.isPrimary) return;
     const point = canvasPoint(event);
     if (!point) return;
+    const resizeHandle = (event.target as HTMLElement).closest<HTMLElement>("[data-resize-corner]");
+    const resizeCorner = resizeHandle?.dataset.resizeCorner as CreativeResizeCorner | undefined;
+    if (resizeCorner && selectedLayer === "athlete") {
+      const transform = projectLayerTransform(project, "athlete");
+      if (!transform) return;
+      dragState.current = { layer: "athlete", mode: "resize", corner: resizeCorner, pointerId: event.pointerId, format: project.format, revision: project.revision, start: point, transform, latest: transform, moved: false };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      proofFrame.current?.focus();
+      event.preventDefault();
+      return;
+    }
     const layer = hitTestCreativeLayer(point, project.layouts[project.format], project.format, {
       background: assetDimensionsForSlot("background"),
       athlete: assetDimensionsForSlot("athlete"),
@@ -653,10 +705,10 @@ export default function CreativeEditor() {
     const transform = projectLayerTransform(project, layer);
     if (!transform) return;
     setSelectedLayer(layer);
-    dragState.current = { layer, pointerId: event.pointerId, format: project.format, revision: project.revision, start: point, transform, latest: transform, moved: false };
+    dragState.current = { layer, mode: "move", pointerId: event.pointerId, format: project.format, revision: project.revision, start: point, transform, latest: transform, moved: false };
     event.currentTarget.setPointerCapture(event.pointerId);
     proofFrame.current?.focus();
-  }, [assetDimensionsForSlot, availableAssets, canvasPoint, project]);
+  }, [assetDimensionsForSlot, availableAssets, canvasPoint, project, selectedLayer]);
 
   const handleCanvasPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragState.current;
@@ -672,7 +724,9 @@ export default function CreativeEditor() {
     const delta = { x: (point.x - drag.start.x) / dimensions.width, y: (point.y - drag.start.y) / dimensions.height };
     if (!drag.moved && Math.hypot(delta.x, delta.y) < 0.002) return;
     drag.moved = true;
-    const nextTransform = moveLayer(drag.transform, delta);
+    const nextTransform = drag.mode === "resize" && drag.corner
+      ? resizeImageFromCorner(drag.transform, dimensions.width, dimensions.height, drag.start, point, drag.corner)
+      : moveLayer(drag.transform, delta);
     drag.latest = nextTransform;
     setInteractionPreview({ layer: drag.layer, transform: nextTransform });
   }, [canvasPoint, project.format, project.revision]);
@@ -806,9 +860,19 @@ export default function CreativeEditor() {
     const blobKey = `creative/${project.id}/${kind}-${crypto.randomUUID()}`;
     const url = URL.createObjectURL(file);
     setAssetUrls((current) => ({ ...current, [blobKey]: url }));
-    const reference = assetReference(kind, `${kind}-${crypto.randomUUID()}`, file.name, file.type || "application/octet-stream", "upload", url, blobKey);
+    const sourceImage = kind === "athlete" ? await imageElementFromBlob(file) : null;
+    const reference = {
+      ...assetReference(kind, `${kind}-${crypto.randomUUID()}`, file.name, file.type || "application/octet-stream", "upload", url, blobKey),
+      ...(sourceImage ? { width: sourceImage.naturalWidth, height: sourceImage.naturalHeight } : {}),
+    };
     commit((current) => {
-      const next = updateProject(current, { assets: { ...current.assets, [kind]: reference }, ...(kind === "athlete" ? { athleteOriginal: reference, athleteCutoutCandidates: [] } : {}) });
+      const layouts = kind === "athlete" && sourceImage
+        ? Object.fromEntries((["card", "banner"] as const).map((format) => [format, {
+          ...current.layouts[format],
+          athlete: fitAthleteTransform(current.layouts[format].athlete, sourceImage.naturalWidth / sourceImage.naturalHeight, format),
+        }])) as Project["layouts"]
+        : undefined;
+      const next = updateProject(current, { assets: { ...current.assets, [kind]: reference }, ...(layouts ? { layouts } : {}), ...(kind === "athlete" ? { athleteOriginal: reference, athleteCutoutCandidates: [] } : {}) });
       return next;
     });
     await persistence.current.saveAssetBlob(blobKey, file);
@@ -883,7 +947,7 @@ export default function CreativeEditor() {
         </aside>
 
         <section className={styles.main} aria-label="Creative proof canvas"><div className={styles.canvasBar}><p className={styles.eyebrow}>Proof</p><div className={styles.canvasMeta}><span>{project.format === "card" ? "1080 × 1350" : "1920 × 1080"}</span><span>PNG / sRGB</span></div></div>
-          <div className={styles.proofStage}><i className={styles.corner} /><i className={styles.corner} /><div ref={proofFrame} className={`${styles.proofFrame} ${project.format === "banner" ? styles.banner : ""}`} tabIndex={0} aria-label="Creative proof editor" onKeyDown={handleCanvasKeyDown}><canvas ref={previewCanvas} className={styles.proofCanvas} aria-label="Rendered creative proof" /><span className={`${styles.sampleTag} ${selectedCandidate?.asset.source === "generated" ? styles.candidateAppliedTag : ""}`}>{selectedCandidate?.asset.source === "sample" ? "Previously generated sample" : selectedCandidate?.status === "ready" ? "Candidate ready" : "Proof"}</span><div className={styles.layerInteraction} role="application" aria-label="Click or drag a creative layer to edit" onPointerDown={handleCanvasPointerDown} onPointerMove={handleCanvasPointerMove} onPointerUp={finishCanvasDrag} onPointerCancel={(event) => finishCanvasDrag(event, true)}>{selectedLayer && selectedRect && <div className={styles.selectedOutline} aria-hidden="true" style={{ left: `${(selectedRect.x / canvasDimensions.width) * 100}%`, top: `${(selectedRect.y / canvasDimensions.height) * 100}%`, width: `${(selectedRect.width / canvasDimensions.width) * 100}%`, height: `${(selectedRect.height / canvasDimensions.height) * 100}%` }} />}</div></div></div>
+          <div className={styles.proofStage}><i className={styles.corner} /><i className={styles.corner} /><div ref={proofFrame} className={`${styles.proofFrame} ${project.format === "banner" ? styles.banner : ""}`} tabIndex={0} aria-label="Creative proof editor" onKeyDown={handleCanvasKeyDown}><canvas ref={previewCanvas} className={styles.proofCanvas} aria-label="Rendered creative proof" /><span className={`${styles.sampleTag} ${selectedCandidate?.asset.source === "generated" ? styles.candidateAppliedTag : ""}`}>{selectedCandidate?.asset.source === "sample" ? "Previously generated sample" : selectedCandidate?.status === "ready" ? "Candidate ready" : "Proof"}</span><div className={styles.layerInteraction} role="application" aria-label="Click or drag a creative layer to edit" onPointerDown={handleCanvasPointerDown} onPointerMove={handleCanvasPointerMove} onPointerUp={finishCanvasDrag} onPointerCancel={(event) => finishCanvasDrag(event, true)}>{selectedLayer && selectedRect && <div className={styles.selectedOutline} aria-hidden="true" style={{ left: `${(selectedRect.x / canvasDimensions.width) * 100}%`, top: `${(selectedRect.y / canvasDimensions.height) * 100}%`, width: `${(selectedRect.width / canvasDimensions.width) * 100}%`, height: `${(selectedRect.height / canvasDimensions.height) * 100}%` }} />}{selectedLayer === "athlete" && selectedRect && (["nw", "ne", "sw", "se"] as const).map((corner) => <span key={corner} className={styles.resizeHandle} data-resize-corner={corner} aria-hidden="true" style={{ left: `${((corner.endsWith("w") ? selectedRect.x : selectedRect.x + selectedRect.width) / canvasDimensions.width) * 100}%`, top: `${((corner.startsWith("n") ? selectedRect.y : selectedRect.y + selectedRect.height) / canvasDimensions.height) * 100}%` }} />)}</div></div></div>
           {statusMessage && <div className={styles.underCanvas}><span className={styles.recovery} role="status"><i className={styles.recoveryDot} />{statusMessage}</span></div>}
         </section>
 
