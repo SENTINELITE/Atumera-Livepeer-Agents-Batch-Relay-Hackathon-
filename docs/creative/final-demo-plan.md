@@ -49,15 +49,14 @@ that an ordinary event change reuses the completed media job.
 3. Rehearse the exact agent prompt and WebMCP calls, then record the shortest
    reliable path. Capture the estimate and approval clearly.
 4. Verify both downloaded PNG dimensions, sample-asset permissions, and the
-   final video URL. Prepare a new, standalone public repository URL for this
-   Atumera project. The current local repository has no remote. Do not push to
-   the WebMCP OpenAI Hackathon repository or change its main branch.
+   final video URL. Use the standalone [Atumera repository](https://github.com/SENTINELITE/Atumera-Livepeer-Agents-Batch-Relay-Hackathon-)
+   for the submission. Do not push to the WebMCP OpenAI Hackathon repository or
+   change its main branch.
 5. Submit the repository and video links with the organizer's six-digit code;
    save the on-screen receipt. The [official submission form](https://atumera.com/hackathon/submit)
    lists those links and the code as required inputs. The [event page](https://atumera.com/hackathon)
    gives the deadline as September 24, 2026 at 23:59 Europe/Athens.
 
-The public event page points to a separate participant pack for detailed rules
-and judging criteria. Confirm those details with the organizer before making an
-eligibility claim. A local build and a recorded demo do not establish a saved
-submission.
+The live submission form is the deadline source; an older details document
+still lists September 21. A local build and a recorded demo do not establish
+a saved submission.

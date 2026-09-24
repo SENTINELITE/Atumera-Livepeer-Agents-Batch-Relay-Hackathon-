@@ -2,6 +2,9 @@
 
 [Batch Relay](https://batchrelay.com) · Atumera Livepeer Agent Hackathon project
 
+**Track 1 — Livepeer Agent Builder.** Livepeer Agent powers the athlete cutout
+and background generation at the center of the Creative workbench.
+
 Open `/creative` to make a sports event card and banner from an athlete photo,
 logo, event text, and a Livepeer-generated background. The browser agent can
 inspect the project, propose a background, change event details, switch formats,
@@ -131,6 +134,16 @@ receipts remain private. See [`docs/creative/developer-guide.md`](docs/creative/
 for the editor bridge contract, [`docs/creative/demo-script.md`](docs/creative/demo-script.md)
 for the review flow, and [`docs/creative/final-demo-plan.md`](docs/creative/final-demo-plan.md)
 for the short video plan.
+
+### Known limitations
+
+- Live generation needs registered-participant access configured on the server;
+  the public repository contains no provider credentials. Local editing and
+  PNG export work without them.
+- Agent control requires a WebMCP-capable browser and agent. The editor has no
+  built-in voice client; its manual controls work in an ordinary browser.
+- Livepeer job availability and completion time depend on the provider. The
+  last approved composition remains editable if a job fails.
 
 ## Verification
 

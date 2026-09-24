@@ -122,13 +122,14 @@ This creative work was added on top of baseline commit `84ce0052474c011dcf8533a3
 (`84ce005`, the existing storefront). The baseline storefront remains
 independent and its public API boundary is unchanged.
 
-The plan targets Track 1, Livepeer Agent Builder. The [public event page](https://atumera.com/hackathon)
-and [submission form](https://atumera.com/hackathon/submit) are the official
-references used during planning. Current implementation evidence does not
-establish eligibility: reuse rules, minimum new-work requirements, repository
-visibility or licensing requirements, the detailed judging rubric, and any
-additional prize-administration steps still need organizer confirmation. A
-successful local build or installed MCP is not a submission receipt.
+This project targets Track 1, Livepeer Agent Builder. The standalone
+[public repository](https://github.com/SENTINELITE/Atumera-Livepeer-Agents-Batch-Relay-Hackathon-)
+includes an MIT license. The [public event page](https://atumera.com/hackathon)
+and [submission form](https://atumera.com/hackathon/submit) are the current
+deadline and submission references. The organizer's detailed participant
+guidance also asks for a working demonstration, a short video, reproducible
+setup, and honest limitations. A successful local build or installed MCP is
+not a submission receipt; the form must be saved successfully.
 
 Keep the participant endpoint, access code, and submission receipt in the private
 evidence record. Never put restricted connection details in public documentation
