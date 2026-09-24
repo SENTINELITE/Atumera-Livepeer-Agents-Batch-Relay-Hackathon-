@@ -160,6 +160,29 @@ test("simultaneous identical cutout estimates share one quote", async () => {
   assert.equal(providerCalls.filter((call) => call.name === "submit_plan").length, 1);
 });
 
+test("background and cutout can be estimated and executed independently for one project", async () => {
+  providerResponder = async (name, args) => {
+    if (name === "upload_image") return { structuredContent: { url: "https://provider.example.test/uploads/athlete.png" } };
+    if (args.confirm === true) return { structuredContent: { status: "queued", steps: [{ status: "queued", job_id: `media-${args.plan_id}` }] } };
+    const model = args.steps[0].args.model_override;
+    return { structuredContent: { status: "proposed", plan_id: `plan-${model}`, total_est_cost_usd: 0.1, steps: [{ args: { model_override: model }, est_cost_usd: 0.1 }] } };
+  };
+  const [background, athlete] = await Promise.all([
+    service.proposeEstimate({ projectId: "project-cutout", revision: 3, requestId: "background-request", prompt: "A dramatic basketball court with clear negative space", palette: { primary: "#123456", accent: "#abcdef" } }),
+    service.proposeCutoutEstimate(estimateInput("athlete-request")),
+  ]);
+  assert.equal(background.operation, "background");
+  assert.equal(athlete.operation, "cutout");
+  const [backgroundJob, athleteJob] = await Promise.all([
+    service.executeEstimate({ estimateId: background.id, requestId: "background-execute", projectId: background.projectId, revision: background.revision }),
+    service.executeEstimate({ estimateId: athlete.id, requestId: "athlete-execute", projectId: athlete.projectId, revision: athlete.revision }),
+  ]);
+  assert.notEqual(backgroundJob.id, athleteJob.id);
+  assert.equal(backgroundJob.operation, "background");
+  assert.equal(athleteJob.operation, "cutout");
+  assert.equal(providerCalls.filter((call) => call.name === "submit_plan" && call.args.confirm === true).length, 2);
+});
+
 test("cutout proposal fails closed when Livepeer substitutes an unexpected model", async () => {
   providerResponder = async (name) => {
     if (name === "upload_image") return { structuredContent: { url: "https://provider.example.test/uploads/athlete.png" } };

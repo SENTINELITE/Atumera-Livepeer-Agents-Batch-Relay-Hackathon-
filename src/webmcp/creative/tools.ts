@@ -24,11 +24,22 @@ type ProposeBackgroundInput = {
   palette: { primary: string; accent: string };
 };
 
+type ProposeCutoutInput = {
+  projectId: string;
+  revision: number;
+};
+
 type CheckGenerationInput = {
   jobId: string;
 };
 
 type ApplyBackgroundInput = {
+  projectId: string;
+  revision: number;
+  candidateId: string;
+};
+
+type ApplyCutoutInput = {
   projectId: string;
   revision: number;
   candidateId: string;
@@ -135,13 +146,35 @@ export const proposeCreativeBackground = defineTool<ProposeBackgroundInput>({
   },
 });
 
+export const proposeCreativeCutout = defineTool<ProposeCutoutInput>({
+  stableKey: "creative.propose_cutout",
+  name: "propose_athlete_cutout",
+  source: "merchant_authored",
+  title: "Estimate athlete background removal",
+  description:
+    "Request a bounded Livepeer estimate to remove the background from the current athlete photo. Returns an estimate for the exact visible project revision and source photo; it does not start the cutout or apply it. A visible human approval control must confirm the quoted operation.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      projectId: { type: "string", minLength: 1 },
+      revision: { type: "integer", minimum: 0 },
+    },
+    required: ["projectId", "revision"],
+    additionalProperties: false,
+  },
+  annotations: { readOnlyHint: false, untrustedContentHint: true },
+  async execute(input) {
+    return requestCreativeWebMcpAction("propose_cutout", input);
+  },
+});
+
 export const checkCreativeGeneration = defineTool<CheckGenerationInput>({
   stableKey: "creative.check_generation",
   name: "check_creative_generation",
   source: "merchant_authored",
-  title: "Check background generation",
+  title: "Check creative generation",
   description:
-    "Check a previously proposed creative background job when a person asks whether it is ready. Returns queued, running, succeeded, or failed status plus estimate, actual cost when available, warnings, and candidate metadata; it does not start another job or spend money.",
+    "Check a previously approved background render or athlete cutout when a person asks whether it is ready. Returns status, operation, and candidate metadata; it does not start another job or spend money.",
   inputSchema: {
     type: "object",
     properties: { jobId: { type: "string", minLength: 1 } },
@@ -174,6 +207,29 @@ export const applyCreativeBackground = defineTool<ApplyBackgroundInput>({
   annotations: { readOnlyHint: false, untrustedContentHint: true },
   async execute(input) {
     return requestCreativeWebMcpAction("apply_background_candidate", input);
+  },
+});
+
+export const applyCreativeCutout = defineTool<ApplyCutoutInput>({
+  stableKey: "creative.apply_cutout",
+  name: "apply_athlete_cutout",
+  source: "merchant_authored",
+  title: "Apply a reviewed athlete cutout",
+  description:
+    "Apply a completed athlete cutout after a person has reviewed and chosen it in the visible workbench. Returns the revised project and preserves the original photo for restore; it cannot start a provider operation or confirm a charge.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      projectId: { type: "string", minLength: 1 },
+      revision: { type: "integer", minimum: 0 },
+      candidateId: { type: "string", minLength: 1 },
+    },
+    required: ["projectId", "revision", "candidateId"],
+    additionalProperties: false,
+  },
+  annotations: { readOnlyHint: false, untrustedContentHint: true },
+  async execute(input) {
+    return requestCreativeWebMcpAction("apply_cutout_candidate", input);
   },
 });
 
@@ -263,8 +319,10 @@ export const creativeWebMcpTools = [
   inspectCreativeProject,
   updateCreativeEvent,
   proposeCreativeBackground,
+  proposeCreativeCutout,
   checkCreativeGeneration,
   applyCreativeBackground,
+  applyCreativeCutout,
   switchCreativeLayout,
   exportCreativeArtwork,
   undoCreativeChange,

@@ -19,6 +19,10 @@ import { clampLayerPosition, fitImageTransformToAspect, hitTestCreativeLayer, in
 
 type Format = CreativeFormat;
 type JobStatus = "idle" | "estimating" | "quoted" | "queued" | "running" | "succeeded" | "failed" | "unconfigured";
+type ProviderOperation = "background" | "cutout";
+type OperationStatus = Record<ProviderOperation, JobStatus>;
+type OperationQuotes = Record<ProviderOperation, Quote | null>;
+type OperationJobs = Record<ProviderOperation, string | null>;
 
 type Project = CreativeProject;
 type CutoutCandidate = CreativeCutoutCandidate;
@@ -88,7 +92,7 @@ export type CreativeEditorBridge = {
   inspect: () => Project;
   updateEvent: (event: Partial<Project["event"]>) => void;
   proposeBackground: (prompt?: string) => Promise<void>;
-  approveQuote: () => Promise<void>;
+  approveQuote: (operation?: "background" | "cutout") => Promise<void>;
   applyCandidate: (id: string) => void;
   switchLayout: (format: Format) => void;
   exportArtwork: (format?: Format) => Promise<ExportResult>;
@@ -251,12 +255,13 @@ export default function CreativeEditor() {
   const [recovered, setRecovered] = useState(false);
   const [status, setStatus] = useState<JobStatus>("idle");
   const [statusMessage, setStatusMessage] = useState("");
-  const [quote, setQuote] = useState<Quote | null>(null);
-  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [quotes, setQuotes] = useState<OperationQuotes>({ background: null, cutout: null });
+  const [operationStatus, setOperationStatus] = useState<OperationStatus>({ background: "idle", cutout: "idle" });
+  const [operationMessage, setOperationMessage] = useState<Record<ProviderOperation, string>>({ background: "", cutout: "" });
+  const [operationError, setOperationError] = useState<Record<ProviderOperation, string | null>>({ background: null, cutout: null });
   const [exportError, setExportError] = useState<string | null>(null);
   const [lastExport, setLastExport] = useState<ExportResult | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [pendingOperation, setPendingOperation] = useState<"background" | "cutout" | null>(null);
+  const [jobs, setJobs] = useState<OperationJobs>({ background: null, cutout: null });
   const [providerConfigured, setProviderConfigured] = useState(true);
   const [providerSetupComplete, setProviderSetupComplete] = useState(false);
   const [providerStatusUnavailable, setProviderStatusUnavailable] = useState(false);
@@ -275,8 +280,8 @@ export default function CreativeEditor() {
   const previewCanvas = useRef<HTMLCanvasElement | null>(null);
   const proofFrame = useRef<HTMLDivElement | null>(null);
   const dragState = useRef<DragState | null>(null);
-  const pollInFlight = useRef(false);
-  const approveInFlight = useRef(false);
+  const pollInFlight = useRef(new Set<string>());
+  const approveInFlight = useRef(new Set<ProviderOperation>());
   const exportUrl = useRef<string | null>(null);
 
   useEffect(() => () => {
@@ -342,8 +347,18 @@ export default function CreativeEditor() {
         setAssetUrls(urls);
         dispatchHistory({ type: "replace", project: recoveredProject });
         setRecovered(true);
-        const pending = saved.generationRefs.find((reference) => reference.status === "queued" || reference.status === "running");
-        if (pending) { setJobId(pending.id); setPendingOperation(pending.target === "athlete" ? "cutout" : "background"); setStatus("running"); setStatusMessage(pending.target === "athlete" ? "Resuming athlete cutout…" : "Resuming background generation…"); }
+        const pending = saved.generationRefs.filter((reference) => reference.status === "queued" || reference.status === "running");
+        if (pending.length) {
+          const nextJobs: OperationJobs = { background: null, cutout: null };
+          const nextStatus: OperationStatus = { background: "idle", cutout: "idle" };
+          for (const reference of pending) {
+            const operation = reference.target === "athlete" ? "cutout" : "background";
+            nextJobs[operation] = reference.id;
+            nextStatus[operation] = "running";
+          }
+          setJobs(nextJobs); setOperationStatus(nextStatus); setStatus("running");
+          setStatusMessage(pending.length > 1 ? "Resuming provider jobs…" : pending[0].target === "athlete" ? "Resuming athlete cutout…" : "Resuming background generation…");
+        }
       } else {
         await saveCreativeProject(initialProject, {}, persistence.current);
       }
@@ -388,6 +403,12 @@ export default function CreativeEditor() {
     dispatchHistory({ type: "commit", updater: typeof next === "function" ? next : () => next });
   }, []);
 
+  const setOperation = useCallback((operation: ProviderOperation, nextStatus: JobStatus, message: string, error: string | null = null) => {
+    setOperationStatus((current) => ({ ...current, [operation]: nextStatus }));
+    setOperationMessage((current) => ({ ...current, [operation]: message }));
+    setOperationError((current) => ({ ...current, [operation]: error }));
+  }, []);
+
   const updateEvent = useCallback((key: keyof Project["event"], value: string) => {
     commit((current) => updateProject(current, { event: { ...current.event, [key]: value } }));
   }, [commit]);
@@ -413,14 +434,12 @@ export default function CreativeEditor() {
   }, []);
 
   const createEstimate = useCallback(async (prompt = project.brief, palette = project.palette, requestedRevision = project.revision): Promise<Quote | null> => {
-    setGenerationError(null);
-    setStatus("estimating");
-    setStatusMessage("Preparing a bound estimate…");
+    setOperation("background", "estimating", "Preparing a background estimate…");
     if (requestedRevision !== project.revision) {
-      setStatus("failed"); setStatusMessage("Estimate is out of date"); setGenerationError("The project changed; inspect it again before requesting a render."); return null;
+      setOperation("background", "failed", "Estimate is out of date", "The project changed; inspect it again before requesting a render."); return null;
     }
     if (!providerConfigured) {
-      setStatus("unconfigured"); setStatusMessage("Live generation access is locked; enter the creative passcode"); setShowPasscode(true); return null;
+      setOperation("background", "unconfigured", "Live generation access is locked", "Enter the creative passcode to render."); setStatus("unconfigured"); setShowPasscode(true); return null;
     }
     try {
       const estimateRequestId = crypto.randomUUID();
@@ -428,35 +447,34 @@ export default function CreativeEditor() {
       const data = await response.json() as { id?: string; estimatedCostUsd?: number; expiresAt?: string; model?: string; error?: string };
       if (!response.ok || !data.id) throw new Error(data.error || "Estimate unavailable");
       const nextQuote = { id: data.id, cost: data.estimatedCostUsd ?? 0.1, expiresAt: data.expiresAt, model: data.model, prompt, revision: requestedRevision, requestId: `${data.id}:execute`, operation: "background" as const };
-      setQuote(nextQuote);
-      setStatus("quoted"); setStatusMessage("Estimate ready · approval required");
+      setQuotes((current) => ({ ...current, background: nextQuote }));
+      setOperation("background", "quoted", "Estimate ready · approval required");
       return nextQuote;
     } catch (error) {
-      setStatus("failed"); setStatusMessage("Estimate could not be prepared"); setGenerationError(error instanceof Error ? error.message : "Unknown estimate error");
+      setOperation("background", "failed", "Estimate could not be prepared", error instanceof Error ? error.message : "Unknown estimate error");
       return null;
     }
-  }, [project, providerConfigured]);
+  }, [project, providerConfigured, setOperation]);
 
-  const approveQuote = useCallback(async () => {
-    if (!quote || approveInFlight.current || status === "queued" || status === "running") return;
-    if (quote.revision !== project.revision) {
-      setGenerationError("This estimate belongs to an earlier revision. Request a new estimate before rendering.");
-      setStatus("failed"); setStatusMessage("Estimate is out of date"); return;
+  const approveQuote = useCallback(async (operation: ProviderOperation = "background") => {
+    const quote = quotes[operation];
+    if (!quote || approveInFlight.current.has(operation)) return;
+    if (operation === "cutout" && quote.sourceAssetId !== (project.athleteOriginal?.id ?? project.assets.athlete?.id)) {
+      setOperation(operation, "failed", "Cutout estimate is out of date", "This estimate belongs to an earlier photograph. Request a new estimate for the current photo."); return;
     }
-    if (quote.operation === "cutout" && quote.sourceAssetId !== (project.athleteOriginal?.id ?? project.assets.athlete?.id)) {
-      setGenerationError("This cutout estimate belongs to an earlier photograph. Upload or choose the current photograph and request a new estimate.");
-      setStatus("failed"); setStatusMessage("Cutout estimate is out of date"); return;
-    }
-    approveInFlight.current = true;
-    setStatus("queued"); setPendingOperation(quote.operation); setStatusMessage(quote.operation === "cutout" ? "Submitting approved cutout request…" : "Submitting approved background request…"); setGenerationError(null);
+    approveInFlight.current.add(operation);
+    setOperation(operation, "queued", operation === "cutout" ? "Submitting approved cutout request…" : "Submitting approved background request…");
     try {
       const response = await fetch("/api/creative/generate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ estimateId: quote.id, requestId: quote.requestId, projectId: project.id, revision: quote.revision, operation: quote.operation }) });
       const data = await response.json() as { id?: string; error?: string };
       if (!response.ok || !data.id) throw new Error(data.error || "Render could not be queued");
       const job = data.id;
-      setJobId(job); setStatus("running"); setStatusMessage(quote.operation === "cutout" ? "Livepeer is removing the athlete background…" : "Livepeer is preparing a background…"); setQuote(null);
+      setJobs((current) => ({ ...current, [operation]: job }));
+      setStatus("running"); setStatusMessage(operation === "cutout" ? "Livepeer is removing the athlete background…" : "Livepeer is preparing a background…");
+      setOperation(operation, "running", operation === "cutout" ? "Removing athlete background" : "Generating background");
+      setQuotes((current) => ({ ...current, [operation]: null }));
       const candidateId = `candidate-${job}`;
-      if (quote.operation === "cutout") {
+      if (operation === "cutout") {
         const sourceAssetId = quote.sourceAssetId as string;
         commit((current) => {
           const typed = current;
@@ -480,18 +498,23 @@ export default function CreativeEditor() {
         generationRefs: [...current.generationRefs, { id: job, candidateId, prompt: quote.prompt, estimatedCostUsd: quote.cost, model: quote.model, status: "running", createdAt: new Date().toISOString(), target: "background" }],
       }));
     } catch (error) {
-      setStatus("failed"); setPendingOperation(null); setStatusMessage("Render was not started"); setGenerationError(error instanceof Error ? error.message : "Unknown render error");
+      setStatus("failed"); setStatusMessage("Render was not started");
+      setOperation(operation, "failed", "Render was not started", error instanceof Error ? error.message : "Unknown render error");
     } finally {
-      approveInFlight.current = false;
+      approveInFlight.current.delete(operation);
     }
-  }, [commit, project.assets.athlete?.id, project.athleteOriginal?.id, project.id, project.revision, quote, status]);
+  }, [commit, project.assets.athlete?.id, project.athleteOriginal?.id, project.id, quotes, setOperation]);
 
   useEffect(() => {
-    if (!jobId || !["running", "queued"].includes(status)) return;
+    if (!providerConfigured || (!jobs.background && !jobs.cutout)) return;
     let cancelled = false;
-    const poll = async () => {
-      if (pollInFlight.current) return;
-      pollInFlight.current = true;
+    const finish = (operation: ProviderOperation, jobId: string, nextStatus: JobStatus, message: string, error: string | null = null) => {
+      setJobs((current) => current[operation] === jobId ? { ...current, [operation]: null } : current);
+      setOperation(operation, nextStatus, message, error);
+    };
+    const pollOne = async (operation: ProviderOperation, jobId: string) => {
+      if (pollInFlight.current.has(jobId)) return;
+      pollInFlight.current.add(jobId);
       try {
         const response = await fetch(`/api/creative/jobs/${encodeURIComponent(jobId)}`);
         if (response.status === 401) {
@@ -501,10 +524,15 @@ export default function CreativeEditor() {
         const data = await response.json() as { status?: string; imageUrl?: string; error?: string; warnings?: string[] };
         if (cancelled) return;
         if (data.status === "succeeded") {
-          if (pendingOperation === "cutout") {
+          if (operation === "cutout") {
             const candidate = (project.athleteCutoutCandidates ?? []).find((item) => item.generationId === jobId);
             if (!candidate || candidate.sourceAssetId !== (project.athleteOriginal?.id ?? project.assets.athlete?.id) || !data.imageUrl) {
-              setStatus("failed"); setStatusMessage("Cutout no longer matches this photograph"); setGenerationError("Upload changes made this cutout obsolete. Request a new cutout for the current photograph."); setJobId(null); setPendingOperation(null); return;
+              commit((current) => {
+                const next = updateProject(current, { generationRefs: current.generationRefs.map((item) => item.id === jobId ? { ...item, status: "failed" } : item) });
+                next.athleteCutoutCandidates = (current.athleteCutoutCandidates ?? []).map((item) => item.generationId === jobId ? { ...item, status: "failed", warning: "This cutout belongs to an earlier photograph." } : item);
+                return next;
+              });
+              finish(operation, jobId, "failed", "Cutout no longer matches this photograph", "Upload changes made this cutout obsolete. Request a new cutout for the current photograph."); return;
             }
             try {
               const imageResponse = await fetch(data.imageUrl);
@@ -523,7 +551,7 @@ export default function CreativeEditor() {
                 next.athleteCutoutCandidates = (current.athleteCutoutCandidates ?? []).map((item) => item.id === candidate.id ? { ...item, status: "ready", warning: "Cutout ready; review before applying.", asset: { ...item.asset, url: data.imageUrl, mimeType: blob.type || item.asset.mimeType } } : item);
                 return next;
               });
-              setStatus("succeeded"); setStatusMessage("Athlete cutout ready for review"); setJobId(null); setPendingOperation(null); return;
+              finish(operation, jobId, "succeeded", "Athlete cutout ready for review"); return;
             } catch (error) {
               commit((current) => {
                 const next = updateProject(current, { generationRefs: current.generationRefs.map((item) => item.id === jobId ? { ...item, status: "failed" } : item) });
@@ -531,13 +559,17 @@ export default function CreativeEditor() {
                 next.athleteCutoutCandidates = (current.athleteCutoutCandidates ?? []).map((item) => item.id === candidate.id ? { ...item, status: "failed", warning: error instanceof Error ? error.message : "Cutout validation failed." } : item);
                 return next;
               });
-              setStatus("failed"); setStatusMessage("Cutout validation failed"); setGenerationError(error instanceof Error ? error.message : "Cutout validation failed."); setJobId(null); setPendingOperation(null); return;
+              finish(operation, jobId, "failed", "Cutout validation failed", error instanceof Error ? error.message : "Cutout validation failed."); return;
             }
           }
           const candidateId = `candidate-${jobId}`;
           const candidate = project.backgroundCandidates.find((item) => item.id === candidateId);
           if (!candidate || !data.imageUrl) {
-            setStatus("failed"); setPendingOperation(null); setStatusMessage("Background render returned no image"); setGenerationError("The provider finished without a retrievable image."); setJobId(null); return;
+            commit((current) => updateProject(current, {
+              backgroundCandidates: current.backgroundCandidates.map((item) => item.id === candidateId ? { ...item, status: "failed", warning: "The provider finished without a retrievable image." } : item),
+              generationRefs: current.generationRefs.map((item) => item.id === jobId ? { ...item, status: "failed" } : item),
+            }));
+            finish(operation, jobId, "failed", "Background render returned no image", "The provider finished without a retrievable image."); return;
           }
           let completedMimeType = candidate.asset.mimeType;
           try {
@@ -558,28 +590,41 @@ export default function CreativeEditor() {
               backgroundCandidates: current.backgroundCandidates.map((item) => item.id === candidateId ? { ...item, status: "failed", warning: error instanceof Error ? error.message : "Rendered image could not be stored." } : item),
               generationRefs: current.generationRefs.map((item) => item.id === jobId ? { ...item, status: "failed" } : item),
             }));
-            setStatus("failed"); setPendingOperation(null); setStatusMessage("Rendered image could not be stored"); setGenerationError(error instanceof Error ? error.message : "Rendered image could not be stored."); setJobId(null); return;
+            finish(operation, jobId, "failed", "Rendered image could not be stored", error instanceof Error ? error.message : "Rendered image could not be stored."); return;
           }
           commit((current) => updateProject(current, {
             backgroundCandidates: current.backgroundCandidates.map((item) => item.id === candidateId ? { ...item, status: "ready", warning: "Live render ready; review before applying.", asset: { ...item.asset, url: data.imageUrl, mimeType: completedMimeType } } : item),
             generationRefs: current.generationRefs.map((item) => item.id === jobId ? { ...item, status: "succeeded" } : item),
           }));
-          setStatus("succeeded"); setPendingOperation(null); setStatusMessage("Background ready for review"); setJobId(null);
+          finish(operation, jobId, "succeeded", "Background ready for review");
         } else if (data.status === "failed" || data.status === "unknown") {
-          const candidateId = `candidate-${jobId}`;
-          commit((current) => updateProject(current, {
-            backgroundCandidates: current.backgroundCandidates.map((item) => item.id === candidateId ? { ...item, status: "failed", warning: data.error || "Provider returned no artwork." } : item),
-            generationRefs: current.generationRefs.map((item) => item.id === jobId ? { ...item, status: data.status === "unknown" ? "unknown" : "failed" } : item),
-          }));
-          setStatus("failed"); setPendingOperation(null); setStatusMessage("Background render failed"); setGenerationError(data.error || "Provider returned no artwork"); setJobId(null);
+          const message = data.error || "Provider returned no artwork.";
+          if (operation === "cutout") {
+            commit((current) => {
+              const next = updateProject(current, { generationRefs: current.generationRefs.map((item) => item.id === jobId ? { ...item, status: data.status === "unknown" ? "unknown" : "failed" } : item) });
+              next.athleteCutoutCandidates = (current.athleteCutoutCandidates ?? []).map((item) => item.generationId === jobId ? { ...item, status: "failed", warning: message } : item);
+              return next;
+            });
+          } else {
+            const candidateId = `candidate-${jobId}`;
+            commit((current) => updateProject(current, {
+              backgroundCandidates: current.backgroundCandidates.map((item) => item.id === candidateId ? { ...item, status: "failed", warning: message } : item),
+              generationRefs: current.generationRefs.map((item) => item.id === jobId ? { ...item, status: data.status === "unknown" ? "unknown" : "failed" } : item),
+            }));
+          }
+          finish(operation, jobId, "failed", operation === "cutout" ? "Athlete cutout failed" : "Background render failed", message);
         }
       } catch { /* transient poll errors keep the pending job recoverable */ }
-      finally { pollInFlight.current = false; }
+      finally { pollInFlight.current.delete(jobId); }
     };
-    const timer = window.setInterval(() => void poll(), 1800);
-    void poll();
+    const poll = () => {
+      if (jobs.background) void pollOne("background", jobs.background);
+      if (jobs.cutout) void pollOne("cutout", jobs.cutout);
+    };
+    const timer = window.setInterval(poll, 1800);
+    poll();
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [commit, jobId, pendingOperation, project.athleteCutoutCandidates, project.backgroundCandidates, project.assets.athlete?.id, project.athleteOriginal?.id, status]);
+  }, [commit, jobs.background, jobs.cutout, project.athleteCutoutCandidates, project.backgroundCandidates, project.assets.athlete?.id, project.athleteOriginal?.id, providerConfigured, setOperation]);
 
   const resolvedAssets = useMemo(() => ({
     background: project.assets.background ? assetUrls[project.assets.background.blobKey] ?? assetUrls[project.assets.background.id] ?? project.assets.background.url : undefined,
@@ -662,25 +707,29 @@ export default function CreativeEditor() {
     commit((current) => updateProject(current, { layouts: { ...current.layouts, [current.format]: { ...current.layouts[current.format], text: current.layouts[current.format].text.map((candidate) => candidate.id === textId ? { ...candidate, align } : candidate) } } }));
   }, [commit, selectedLayer]);
 
-  const proposeCutout = useCallback(async () => {
+  const proposeCutout = useCallback(async (requestedRevision = project.revision): Promise<Quote | null> => {
     const source = project.athleteOriginal ?? project.assets.athlete;
     const sourceUrl = source ? assetUrls[source.blobKey] ?? assetUrls[source.id] ?? source.url : undefined;
-    if (!source || typeof sourceUrl !== "string") { setGenerationError("Add a photograph before requesting a cutout."); return; }
-    if (!providerConfigured) { setStatus("unconfigured"); setStatusMessage("Live generation access is locked; enter the creative passcode"); setShowPasscode(true); return; }
-    setGenerationError(null); setStatus("estimating"); setStatusMessage("Preparing a private cutout estimate…");
+    if (!source || typeof sourceUrl !== "string") { setOperation("cutout", "failed", "Add a photo first", "Add a photograph before requesting a cutout."); return null; }
+    if (requestedRevision !== project.revision) { setOperation("cutout", "failed", "Estimate is out of date", "The project changed; inspect it again before requesting a cutout."); return null; }
+    if (!providerConfigured) { setOperation("cutout", "unconfigured", "Live generation access is locked", "Enter the creative passcode to render."); setStatus("unconfigured"); setShowPasscode(true); return null; }
+    setOperation("cutout", "estimating", "Preparing a private cutout estimate…");
     try {
       const copy = await prepareCutoutCopy(sourceUrl);
       const form = new FormData();
-      form.set("projectId", project.id); form.set("revision", String(project.revision)); form.set("requestId", crypto.randomUUID()); form.set("sourceAssetId", source.id); form.set("image", copy, "athlete-cutout.jpg");
+      form.set("projectId", project.id); form.set("revision", String(requestedRevision)); form.set("requestId", crypto.randomUUID()); form.set("sourceAssetId", source.id); form.set("image", copy, "athlete-cutout.jpg");
       const response = await fetch("/api/creative/cutouts/estimate", { method: "POST", body: form });
       const data = await response.json() as { id?: string; estimatedCostUsd?: number; expiresAt?: string; model?: string; error?: string; operation?: string; sourceAssetId?: string };
       if (!response.ok || !data.id) throw new Error(data.error || "Cutout estimate unavailable");
-      const nextQuote: Quote = { id: data.id, cost: data.estimatedCostUsd ?? 0.1, expiresAt: data.expiresAt, model: data.model, prompt: "Remove the background from the supplied athlete photograph while preserving the subject.", revision: project.revision, requestId: `${data.id}:execute`, operation: "cutout", sourceAssetId: data.sourceAssetId || source.id };
-      setQuote(nextQuote); setStatus("quoted"); setStatusMessage("Cutout estimate ready · approval required");
+      const nextQuote: Quote = { id: data.id, cost: data.estimatedCostUsd ?? 0.1, expiresAt: data.expiresAt, model: data.model, prompt: "Remove the background from the supplied athlete photograph while preserving the subject.", revision: requestedRevision, requestId: `${data.id}:execute`, operation: "cutout", sourceAssetId: data.sourceAssetId || source.id };
+      setQuotes((current) => ({ ...current, cutout: nextQuote }));
+      setOperation("cutout", "quoted", "Cutout estimate ready · approval required");
+      return nextQuote;
     } catch (error) {
-      setStatus("failed"); setStatusMessage("Cutout estimate could not be prepared"); setGenerationError(error instanceof Error ? error.message : "Cutout estimate unavailable");
+      setOperation("cutout", "failed", "Cutout estimate could not be prepared", error instanceof Error ? error.message : "Cutout estimate unavailable");
+      return null;
     }
-  }, [assetUrls, project, providerConfigured]);
+  }, [assetUrls, project, providerConfigured, setOperation]);
 
   useEffect(() => {
     const canvas = previewCanvas.current;
@@ -819,8 +868,8 @@ export default function CreativeEditor() {
       const inputProjectId = typeof input.projectId === "string" ? input.projectId : project.id;
       const inputRevision = typeof input.revision === "number" ? input.revision : project.revision;
       if (inputProjectId !== project.id) return reject(request, "The requested project is not open.", "invalid_input");
-      if (["update_event_details", "propose_background", "apply_background_candidate", "switch_layout", "export_artwork"].includes(request.action) && inputRevision !== project.revision) return reject(request, "The visible project changed; inspect it again before applying this request.", "stale_revision");
-      if (request.action === "inspect_project") return respond(request, { ...project, pendingJobCount: project.backgroundCandidates.filter((item) => item.status === "pending").length });
+      if (["update_event_details", "propose_background", "propose_cutout", "apply_background_candidate", "apply_cutout_candidate", "switch_layout", "export_artwork"].includes(request.action) && inputRevision !== project.revision) return reject(request, "The visible project changed; inspect it again before applying this request.", "stale_revision");
+      if (request.action === "inspect_project") return respond(request, { ...project, pendingJobCount: project.backgroundCandidates.filter((item) => item.status === "pending").length + (project.athleteCutoutCandidates ?? []).filter((item) => item.status === "pending").length });
       if (request.action === "update_event_details") {
         const event = input.event && typeof input.event === "object" ? input.event as Partial<Project["event"]> : null;
         if (!event) return reject(request, "Event details are required.", "invalid_input");
@@ -834,17 +883,30 @@ export default function CreativeEditor() {
         void createEstimate(prompt, palette, inputRevision).then((estimate) => respond(request, estimate ? { status: "proposed", estimate } : { status: "failed", message: "Estimate unavailable" }));
         return;
       }
+      if (request.action === "propose_cutout") {
+        void proposeCutout(inputRevision).then((estimate) => respond(request, estimate ? { status: "proposed", estimate } : { status: "failed", message: "Cutout estimate unavailable" }));
+        return;
+      }
       if (request.action === "check_generation") {
         const requestedJobId = typeof input.jobId === "string" ? input.jobId : "";
-        const candidate = project.backgroundCandidates.find((item) => item.generationId === requestedJobId);
+        const backgroundCandidate = project.backgroundCandidates.find((item) => item.generationId === requestedJobId);
+        const cutoutCandidate = (project.athleteCutoutCandidates ?? []).find((item) => item.generationId === requestedJobId);
+        const candidate = backgroundCandidate ?? cutoutCandidate;
         if (!candidate) return reject(request, "That generation job is not present in this project.", "job_not_found");
-        return respond(request, { jobId: requestedJobId, status: candidate.status === "pending" ? "running" : candidate.status === "ready" ? "succeeded" : "unknown", candidateId: candidate.id, imageUrl: candidate.asset.url });
+        return respond(request, { jobId: requestedJobId, operation: cutoutCandidate ? "cutout" : "background", status: candidate.status === "pending" ? "running" : candidate.status === "ready" ? "succeeded" : candidate.status, candidateId: candidate.id, imageUrl: candidate.asset.url });
       }
       if (request.action === "apply_background_candidate") {
         const candidateId = typeof input.candidateId === "string" ? input.candidateId : "";
         const candidate = project.backgroundCandidates.find((item) => item.id === candidateId && item.status === "ready");
         if (!candidate) return reject(request, "Choose a completed background candidate first.", "candidate_not_found");
         applyCandidate(candidate.id); return respond(request, { projectId: project.id, revision: project.revision + 1, appliedCandidateId: candidate.id });
+      }
+      if (request.action === "apply_cutout_candidate") {
+        const candidateId = typeof input.candidateId === "string" ? input.candidateId : "";
+        const candidate = (project.athleteCutoutCandidates ?? []).find((item) => item.id === candidateId && item.status === "ready");
+        if (!candidate) return reject(request, "Choose a completed athlete cutout first.", "candidate_not_found");
+        if (candidate.sourceAssetId !== (project.athleteOriginal?.id ?? project.assets.athlete?.id)) return reject(request, "That cutout belongs to an earlier photograph.", "candidate_not_found");
+        applyCutoutCandidate(candidate.id); return respond(request, { projectId: project.id, revision: project.revision + 1, appliedCandidateId: candidate.id });
       }
       if (request.action === "switch_layout") {
         const layout = input.layout === "banner" ? "banner" : input.layout === "card" ? "card" : null;
@@ -861,7 +923,7 @@ export default function CreativeEditor() {
       return reject(request, `Unsupported creative action: ${request.action}`, "invalid_input");
     });
     return () => { unsubscribe(); };
-  }, [applyCandidate, commit, createEstimate, exportArtwork, future.length, past.length, project, redo, switchLayout, undo]);
+  }, [applyCandidate, applyCutoutCandidate, commit, createEstimate, exportArtwork, future.length, past.length, project, proposeCutout, redo, switchLayout, undo]);
 
   useEffect(() => {
     publishCreativeWebMcpState({
@@ -870,8 +932,8 @@ export default function CreativeEditor() {
       layout: project.format,
       hasProject: true,
       hasApprovedBackground: Boolean(project.assets.background),
-      pendingJobCount: project.backgroundCandidates.filter((candidate) => candidate.status === "pending").length,
-      pendingCandidateCount: project.backgroundCandidates.filter((candidate) => candidate.status === "ready").length,
+      pendingJobCount: project.backgroundCandidates.filter((candidate) => candidate.status === "pending").length + (project.athleteCutoutCandidates ?? []).filter((candidate) => candidate.status === "pending").length,
+      pendingCandidateCount: project.backgroundCandidates.filter((candidate) => candidate.status === "ready").length + (project.athleteCutoutCandidates ?? []).filter((candidate) => candidate.status === "ready").length,
       canUndo: past.length > 0,
       canRedo: future.length > 0,
     });
@@ -962,7 +1024,10 @@ export default function CreativeEditor() {
           <section className={styles.railSection}><p className={styles.eyebrow}>Source layers</p>
             <label className={styles.upload}><input type="file" accept="image/png,image/jpeg" onChange={(event) => void updateUpload("athlete", event.target.files?.[0])} />{resolvedAssets.athlete ? <img className={styles.uploadThumb} src={resolvedAssets.athlete} alt="Athlete source preview" /> : <span className={styles.uploadMark}>+</span>}<span className={styles.uploadText}><strong>Photograph</strong><span>PNG / JPEG</span></span></label>
             <label className={styles.upload} style={{ marginTop: 8 }}><input type="file" accept="image/png,image/svg+xml" onChange={(event) => void updateUpload("logo", event.target.files?.[0])} />{resolvedAssets.logo ? <img className={styles.uploadThumb} src={resolvedAssets.logo} alt="Logo source preview" /> : <span className={styles.uploadMark}>+</span>}<span className={styles.uploadText}><strong>Event logo</strong><span>PNG / SVG</span></span></label>
-            <p className={styles.cutoutDisclosure}>Background removal sends a copy of your photograph to Livepeer. Your original photo stays saved locally.</p><button className={`${styles.orangeButton} ${styles.cutoutAction}`} type="button" disabled={!project.assets.athlete || status === "estimating" || status === "running" || status === "queued"} onClick={() => void proposeCutout()}>Upload photo &amp; estimate</button>
+            <p className={styles.cutoutDisclosure}>Background removal sends a copy of your photograph to Livepeer. Your original photo stays saved locally.</p><button className={`${styles.orangeButton} ${styles.cutoutAction}`} type="button" disabled={!project.assets.athlete || ["estimating", "running", "queued"].includes(operationStatus.cutout)} onClick={() => void proposeCutout()}>{operationStatus.cutout === "estimating" ? "Preparing cutout estimate…" : "Get cutout estimate"}</button>
+            {operationMessage.cutout && <p className={styles.inspectorHint} role="status">{operationMessage.cutout}</p>}
+            {operationError.cutout && <div className={`${styles.notice} ${styles.noticeError}`} role="alert">{operationError.cutout}</div>}
+            {quotes.cutout && <div className={styles.quote}><div className={styles.quoteHeader}><span>Estimated cost</span><span>Athlete cutout</span></div><div className={styles.quoteCost}>{formatCost(quotes.cutout.cost)}</div><div className={styles.quoteMeta}>{quotes.cutout.model || "Background removal"} · one operation · approval required</div><button className={styles.orangeButton} type="button" disabled={operationStatus.cutout === "queued" || operationStatus.cutout === "running"} onClick={() => void approveQuote("cutout")}>Approve cutout</button></div>}
             {project.athleteOriginal && project.assets.athlete?.id !== project.athleteOriginal.id && <button className={styles.directionButton} type="button" style={{ marginTop: 8, width: "100%" }} onClick={restoreAthlete}>Restore original photo</button>}
             {(project.athleteCutoutCandidates?.length ?? 0) > 0 && (() => { const candidates = project.athleteCutoutCandidates ?? []; const preferredId = cutoutCandidateId ?? candidates.find((item) => item.sourceAssetId === (project.athleteOriginal?.id ?? project.assets.athlete?.id) && item.status === "ready")?.id ?? candidates.find((item) => item.status === "ready")?.id ?? candidates[candidates.length - 1].id; const foundIndex = candidates.findIndex((item) => item.id === preferredId); const index = foundIndex < 0 ? candidates.length - 1 : foundIndex; const candidate = candidates[index]; const sourceId = project.athleteOriginal?.id ?? project.assets.athlete?.id; const sourceMatches = candidate.sourceAssetId === sourceId; const candidateUrl = assetUrls[candidate.asset.blobKey] ?? candidate.asset.url; return <div className={styles.cutoutCandidates} role="group" aria-label="Athlete cutout candidates"><div className={styles.carouselControls}><span className={styles.carouselCount} aria-live="polite">{index + 1} of {candidates.length}</span><div><button className={styles.carouselButton} type="button" aria-label="Previous athlete cutout" disabled={index === 0} onClick={() => { setCutoutCandidateDirection("previous"); setCutoutCandidateId(candidates[index - 1].id); }}>←</button><button className={styles.carouselButton} type="button" aria-label="Next athlete cutout" disabled={index === candidates.length - 1} onClick={() => { setCutoutCandidateDirection("next"); setCutoutCandidateId(candidates[index + 1].id); }}>→</button></div></div><div className={`${styles.cutoutCard} ${cutoutCandidateDirection === "previous" ? styles.carouselPrevious : styles.carouselNext}`} key={candidate.id}>{candidateUrl ? <img className={styles.cutoutThumb} src={candidateUrl} alt="Athlete cutout candidate" /> : <div className={styles.cutoutThumb} aria-hidden="true" />}<div className={styles.cutoutMeta}><strong>{candidate.status === "ready" ? "Cutout ready" : candidate.status === "pending" ? "Cutout processing" : "Cutout unavailable"}</strong><span>{sourceMatches ? "Current photo" : "Earlier photo"}</span>{candidate.warning && candidate.status === "failed" && <span>{candidate.warning}</span>}{candidate.status === "ready" && <button type="button" disabled={!sourceMatches} onClick={() => { setCutoutCandidateId(candidate.id); applyCutoutCandidate(candidate.id); }}>Apply cutout</button>}</div></div></div>; })()}
           </section>
@@ -974,7 +1039,7 @@ export default function CreativeEditor() {
         </section>
 
         <aside className={`${styles.rail} ${styles.rightRail}`} aria-label="Background direction">
-          <section className={styles.railSection}><div className={styles.sectionHeading}><p className={styles.eyebrow}>Background</p></div><div className={styles.directionCard}><p className={styles.directionText}>Your photo, logo, and text stay local. Each background render requires approval after its estimate.</p><div className={styles.field}><label htmlFor="creative-brief">Brief / revision note</label><textarea id="creative-brief" value={project.brief} onChange={(event) => updateBrief(event.target.value)} /></div><div className={styles.directionButtons}><button className={styles.directionButton} type="button" onClick={() => updateBrief(`${project.brief} More negative space behind the headline.`)}>+ Clear headline space</button><button className={styles.directionButton} type="button" onClick={() => updateBrief(`${project.brief} Add warmer sideline light.`)}>+ Warm the sideline light</button><button className={styles.orangeButton} type="button" disabled={status === "estimating" || status === "running" || status === "queued"} onClick={() => void createEstimate()}>{status === "estimating" ? "Preparing estimate…" : "Get a render estimate"}</button></div>{generationError && <div className={`${styles.notice} ${styles.noticeError}`} role="alert">{generationError}</div>}{status === "running" || status === "queued" ? <div className={styles.progress} aria-live="polite"><div className={styles.progressTrack}><div className={styles.progressFill} /></div><div className={styles.progressLabel}><span>{pendingOperation === "cutout" ? "Removing athlete background" : "Generating background"}</span><span>In progress</span></div></div> : null}</div>{quote && <div className={styles.quote}><div className={styles.quoteHeader}><span>Estimated cost</span><span>{quote.operation === "cutout" ? "Athlete cutout" : "Background"}</span></div><div className={styles.quoteCost}>{formatCost(quote.cost)}</div><div className={styles.quoteMeta}>{quote.model || "fast background model"} · one render · no automatic retries</div><button className={styles.orangeButton} type="button" disabled={status === "queued" || status === "running"} onClick={() => void approveQuote()}>{quote.operation === "cutout" ? "Approve cutout" : "Approve & render"}</button></div>}{status === "unconfigured" && <div className={`${styles.notice} ${styles.accessNotice}`}>{providerStatusUnavailable ? "Could not check Livepeer setup. Reload to check again." : providerSetupComplete ? "Enter the creative passcode to unlock live rendering." : "Live rendering is unavailable until setup is complete."} Local editing and PNG export remain available.{showPasscode ? <form onSubmit={(event) => { event.preventDefault(); setSessionPending(true); void fetch("/api/creative/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ passcode }) }).then(async (response) => { if (!response.ok) { const body = await response.json().catch(() => ({})) as { error?: string }; throw new Error(body.error || "Passcode was rejected"); } setProviderConfigured(true); setProviderSetupComplete(true); setStatus(jobId ? "running" : "idle"); setStatusMessage(jobId ? "Live generation resumed" : "Live generation ready"); setGenerationError(null); setShowPasscode(false); }).catch((error) => { setGenerationError(error instanceof Error ? error.message : "Passcode was rejected"); setStatus("unconfigured"); }).finally(() => setSessionPending(false)); }}><div className={styles.field}><label htmlFor="provider-passcode">Passcode</label><input id="provider-passcode" type="password" value={passcode} onChange={(event) => setPasscode(event.target.value)} /><button className={styles.orangeButton} style={{ marginTop: 8, width: "100%" }} disabled={sessionPending} type="submit">{sessionPending ? "Unlocking…" : "Unlock live generation"}</button></div></form> : providerSetupComplete ? <button className={styles.directionButton} style={{ marginTop: 10, width: "100%" }} type="button" onClick={() => setShowPasscode(true)}>Unlock live generation</button> : null}</div>}</section>
+          <section className={styles.railSection}><div className={styles.sectionHeading}><p className={styles.eyebrow}>Background</p></div><div className={styles.directionCard}><p className={styles.directionText}>Your photo, logo, and text stay local. Each background render requires approval after its estimate.</p><div className={styles.field}><label htmlFor="creative-brief">Brief / revision note</label><textarea id="creative-brief" value={project.brief} onChange={(event) => updateBrief(event.target.value)} /></div><div className={styles.directionButtons}><button className={styles.directionButton} type="button" onClick={() => updateBrief(`${project.brief} More negative space behind the headline.`)}>+ Clear headline space</button><button className={styles.directionButton} type="button" onClick={() => updateBrief(`${project.brief} Add warmer sideline light.`)}>+ Warm the sideline light</button><button className={styles.orangeButton} type="button" disabled={["estimating", "running", "queued"].includes(operationStatus.background)} onClick={() => void createEstimate()}>{operationStatus.background === "estimating" ? "Preparing estimate…" : "Get a render estimate"}</button></div>{operationError.background && <div className={`${styles.notice} ${styles.noticeError}`} role="alert">{operationError.background}</div>}{operationMessage.background && <p className={styles.inspectorHint} role="status">{operationMessage.background}</p>}{operationStatus.background === "running" || operationStatus.background === "queued" ? <div className={styles.progress} aria-live="polite"><div className={styles.progressTrack}><div className={styles.progressFill} /></div><div className={styles.progressLabel}><span>Generating background</span><span>In progress</span></div></div> : null}</div>{quotes.background && <div className={styles.quote}><div className={styles.quoteHeader}><span>Estimated cost</span><span>Background</span></div><div className={styles.quoteCost}>{formatCost(quotes.background.cost)}</div><div className={styles.quoteMeta}>{quotes.background.model || "fast background model"} · one render · no automatic retries</div><button className={styles.orangeButton} type="button" disabled={operationStatus.background === "queued" || operationStatus.background === "running"} onClick={() => void approveQuote("background")}>Approve &amp; render</button></div>}{status === "unconfigured" && <div className={`${styles.notice} ${styles.accessNotice}`}>{providerStatusUnavailable ? "Could not check Livepeer setup. Reload to check again." : providerSetupComplete ? "Enter the creative passcode to unlock live rendering." : "Live rendering is unavailable until setup is complete."} Local editing and PNG export remain available.{showPasscode ? <form onSubmit={(event) => { event.preventDefault(); setSessionPending(true); void fetch("/api/creative/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ passcode }) }).then(async (response) => { if (!response.ok) { const body = await response.json().catch(() => ({})) as { error?: string }; throw new Error(body.error || "Passcode was rejected"); } setProviderConfigured(true); setProviderSetupComplete(true); setStatus(jobs.background || jobs.cutout ? "running" : "idle"); setStatusMessage(jobs.background || jobs.cutout ? "Live generation resumed" : "Live generation ready"); setShowPasscode(false); }).catch(() => { setStatus("unconfigured"); }).finally(() => setSessionPending(false)); }}><div className={styles.field}><label htmlFor="provider-passcode">Passcode</label><input id="provider-passcode" type="password" value={passcode} onChange={(event) => setPasscode(event.target.value)} /><button className={styles.orangeButton} style={{ marginTop: 8, width: "100%" }} disabled={sessionPending} type="submit">{sessionPending ? "Unlocking…" : "Unlock live generation"}</button></div></form> : providerSetupComplete ? <button className={styles.directionButton} style={{ marginTop: 10, width: "100%" }} type="button" onClick={() => setShowPasscode(true)}>Unlock live generation</button> : null}</div>}</section>
           <section className={styles.railSection}>
             <div className={styles.sectionHeading}><p className={styles.eyebrow}>Background candidates</p></div>
             {project.backgroundCandidates.length > 0 && (() => {
